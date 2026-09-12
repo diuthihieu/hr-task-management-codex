@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: workbase
+      POSTGRES_USER: workbase
+      POSTGRES_PASSWORD: workbase
+    ports:
+      - "5432:5432"
+    volumes:
+      - workbase-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workbase -d workbase"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://workbase:workbase@postgres:5432/workbase
+      AUTH_SECRET: local-development-only-change-me
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  workbase-postgres:
