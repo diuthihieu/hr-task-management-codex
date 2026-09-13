@@ -10,6 +10,7 @@ import {
   FileClock,
   History,
   LayoutDashboard,
+  LogOut,
   Plus,
   Settings,
   ShieldCheck,
@@ -21,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { signOut } from "next-auth/react";
 import type { BaseDefinition, WorkspaceDefinition } from "@/domain/base";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -50,6 +52,8 @@ export function Sidebar({
   onSelectOkrs,
   onSelectMyWork,
   currentUser,
+  currentUserEmail,
+  currentUserImage,
   onCreate,
 }: {
   workspaces: WorkspaceDefinition[];
@@ -68,6 +72,8 @@ export function Sidebar({
   onSelectOkrs: () => void;
   onSelectMyWork: () => void;
   currentUser: string;
+  currentUserEmail?: string;
+  currentUserImage?: string;
   onCreate: (kind: "workspace" | "base" | "table") => void;
 }) {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -130,9 +136,9 @@ export function Sidebar({
       <div className="sidebar-footer">
         <button className="nav-item"><Settings size={16} /><span>Workspace settings</span></button>
         <div className="user-card">
-          <span className="user-avatar">HN</span>
-          <span><strong>{currentUser}</strong><small>Workspace owner</small></span>
-          <Database size={14} />
+          {currentUserImage ? <span className="user-avatar user-avatar-image" style={{ backgroundImage: `url(${currentUserImage})` }} aria-label={`${currentUser} profile photo`} /> : <span className="user-avatar">{currentUser.split(/\s+/).map((part) => part[0]).slice(-2).join("").toUpperCase()}</span>}
+          <span><strong>{currentUser}</strong><small>{currentUserEmail ?? "Workspace owner"}</small></span>
+          {currentUserEmail ? <button className="sign-out-button" onClick={() => signOut({ redirectTo: "/sign-in" })} aria-label="Sign out"><LogOut size={14} /></button> : <Database size={14} />}
         </div>
       </div>
     </aside>

@@ -21,9 +21,10 @@ import { MyWorkView, OkrWorkspace } from "./okr-view";
 type FieldDialogState = { open: boolean; field?: FieldDefinition; insertAt?: number };
 type EntityKind = "workspace" | "base" | "table";
 type ActiveArea = "table" | "dashboard" | "okrs" | "myWork" | "workflow" | "templates";
-const currentUser = "Hieu Nguyen";
+type WorkspaceUser = { name: string; email?: string; image?: string };
 
-export function WorkspaceApp() {
+export function WorkspaceApp({ user }: { user: WorkspaceUser }) {
+  const currentUser = user.name;
   const [state, setState] = useState<AppState>(initialAppState);
   const [hydrated, setHydrated] = useState(false);
   const [activeArea, setActiveArea] = useState<ActiveArea>("table");
@@ -242,7 +243,7 @@ export function WorkspaceApp() {
   };
 
   return <div className="app-shell">
-    <Sidebar workspaces={state.workspaces} workspace={workspace} base={base} activeWorkspaceId={workspace.id} activeBaseId={base.id} activeTableId={table.id} activeArea={activeArea} mobileOpen={mobileNavOpen} currentUser={currentUser} onMobileClose={() => setMobileNavOpen(false)} onSelectWorkspace={switchWorkspace} onSelectBase={switchBase} onSelectTable={switchTable} onSelectDashboard={() => openSharedArea("dashboard")} onSelectOkrs={() => openSharedArea("okrs")} onSelectMyWork={() => openSharedArea("myWork")} onCreate={openEntityDialog} />
+    <Sidebar workspaces={state.workspaces} workspace={workspace} base={base} activeWorkspaceId={workspace.id} activeBaseId={base.id} activeTableId={table.id} activeArea={activeArea} mobileOpen={mobileNavOpen} currentUser={currentUser} currentUserEmail={user.email} currentUserImage={user.image} onMobileClose={() => setMobileNavOpen(false)} onSelectWorkspace={switchWorkspace} onSelectBase={switchBase} onSelectTable={switchTable} onSelectDashboard={() => openSharedArea("dashboard")} onSelectOkrs={() => openSharedArea("okrs")} onSelectMyWork={() => openSharedArea("myWork")} onCreate={openEntityDialog} />
     <main className="workspace-main">
       <Topbar workspaceName={workspace.name} baseName={base.name} tableName={activeArea === "dashboard" ? "Dashboard" : activeArea === "okrs" ? "OKRs" : activeArea === "myWork" ? "My Work" : table.name} search={search} onSearchChange={setSearch} onMenuOpen={() => setMobileNavOpen(true)} onToast={setToast} />
       {activeArea === "dashboard" ? <DashboardView table={taskTable} onOpenRecord={setDrawerRecordId} /> : activeArea === "okrs" ? <OkrWorkspace store={state.okrs} tasks={taskTable.records} currentUser={currentUser} onChangeStore={(okrs) => setState((current) => ({ ...current, okrs }))} onUpdateTask={updateTask} onOpenTask={setDrawerRecordId} /> : activeArea === "myWork" ? <MyWorkView store={state.okrs} tasks={taskTable.records} currentUser={currentUser} onChangeStore={(okrs) => setState((current) => ({ ...current, okrs }))} onUpdateTask={updateTask} onOpenTask={setDrawerRecordId} /> : <>

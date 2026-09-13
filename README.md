@@ -11,6 +11,15 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Demo edits persist in browser local storage; use **Reset demo** in the table title bar to restore the HR seed.
 
+## Google and Microsoft sign-in
+
+Authentication is implemented with Auth.js and becomes mandatory only when `AUTH_REQUIRED=true`. Configure at least one provider together with a strong `AUTH_SECRET`:
+
+- Google callback: `https://your-domain/api/auth/callback/google`
+- Microsoft callback: `https://your-domain/api/auth/callback/microsoft-entra-id`
+
+Copy the corresponding variables from [.env.example](.env.example). Microsoft defaults to the `common` tenant so work, school, and personal accounts can sign in; replace `AUTH_MICROSOFT_ENTRA_ID_ISSUER` with an organization tenant URL to restrict it. `AUTH_ALLOWED_EMAILS` and `AUTH_ALLOWED_DOMAINS` provide an optional workspace allowlist.
+
 ## Validate
 
 ```bash
