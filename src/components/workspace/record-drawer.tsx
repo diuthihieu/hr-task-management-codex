@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Activity, CalendarDays, Check, MessageSquare, Paperclip, Send, Trash2, UserPlus, X } from "lucide-react";
 import type { BaseRecord, CellValue, FieldDefinition } from "@/domain/base";
 import { Button } from "@/components/ui/button";
-import { initials } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
 
 export function RecordDrawer({ record, fields, onClose, onUpdateCell, onDelete, onComment }: {
   record?: BaseRecord;
@@ -38,13 +38,18 @@ export function RecordDrawer({ record, fields, onClose, onUpdateCell, onDelete, 
 }
 
 function DrawerField({ field, value, onChange }: { field: FieldDefinition; value: CellValue | undefined; onChange: (value: CellValue) => void }) {
-  const readOnly = ["formula", "lookup", "rollup", "createdBy", "createdTime", "modifiedTime"].includes(field.type);
+  const readOnly = ["autoNumber", "formula", "lookup", "rollup", "createdBy", "createdTime", "modifiedBy", "modifiedTime"].includes(field.type);
+  const invalid = Boolean(field.required && (value == null || value === "" || (Array.isArray(value) && value.length === 0)));
   let input: React.ReactNode;
   if (readOnly) input = <span className="drawer-readonly">{String(value ?? "—")}</span>;
-  else if (field.configuration?.options?.length) input = <select value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">—</option>{field.configuration.options.map((option) => <option key={option.id}>{option.label}</option>)}</select>;
+  else if (field.type === "button") input = <Button variant="secondary" size="sm">Run action</Button>;
+  else if (field.type === "checkbox") input = <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />;
+  else if (field.configuration?.options?.length) input = <select aria-invalid={invalid || undefined} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">—</option>{field.configuration.options.map((option) => <option key={option.id} value={field.configuration?.optionValue === "id" ? option.id : option.label}>{option.label}</option>)}</select>;
   else if (field.type === "longText") input = <textarea rows={3} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} />;
   else if (field.type === "date") input = <input type="date" value={String(value ?? "").slice(0, 10)} onChange={(event) => onChange(event.target.value)} />;
-  else if (["number", "integer", "currency", "progress", "percentage"].includes(field.type)) input = <input type="number" value={Number(value ?? 0)} onChange={(event) => onChange(Number(event.target.value))} />;
-  else input = <input value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} />;
-  return <label className="drawer-field"><span>{field.name}{field.required && <b>*</b>}</span>{input}</label>;
+  else if (field.type === "dateTime") input = <input type="datetime-local" value={String(value ?? "").slice(0, 16)} onChange={(event) => onChange(event.target.value)} />;
+  else if (["multiSelect", "multiplePeople", "attachment", "relationship", "linkToRecord"].includes(field.type)) input = <input value={Array.isArray(value) ? value.join(", ") : String(value ?? "")} onChange={(event) => onChange(event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} />;
+  else if (["number", "integer", "currency", "progress", "percentage", "rating", "duration"].includes(field.type)) input = <input type="number" min={field.configuration?.min} max={field.configuration?.max} step={field.type === "integer" ? 1 : undefined} value={value == null ? "" : Number(value)} onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))} />;
+  else input = <input type={field.type === "email" ? "email" : field.type === "phone" ? "tel" : field.type === "url" ? "url" : "text"} aria-invalid={invalid || undefined} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} />;
+  return <label className={cn("drawer-field", invalid && "invalid")}><span>{field.name}{field.required && <b>*</b>}</span>{input}</label>;
 }

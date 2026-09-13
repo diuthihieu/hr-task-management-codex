@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Cloud, Database, RotateCcw } from "lucide-react";
+import { AlertCircle, Check, Cloud, Database, LoaderCircle, RotateCcw } from "lucide-react";
 import type { AppState, BaseRecord, CellValue, DataTable, FieldDefinition, FieldType, SavedView } from "@/domain/base";
 import { createEmptyView, createId } from "@/domain/base";
 import { initialAppState } from "@/data/hr-demo";
@@ -14,16 +14,19 @@ import { FieldDialog, CreateEntityDialog, NewViewDialog } from "./dialogs";
 import { RecordDrawer } from "./record-drawer";
 import { DashboardView } from "./dashboard-view";
 import { AlternateView } from "./alternate-view";
-
-const STORAGE_KEY = "orbit-base:mvp:v1";
+import { downloadRecords, type ExportFormat, type ExportScope } from "@/lib/export";
+import { LEGACY_STORAGE_KEYS, normalizeAppState, STORAGE_KEY } from "@/lib/state";
+import { MyWorkView, OkrWorkspace } from "./okr-view";
 
 type FieldDialogState = { open: boolean; field?: FieldDefinition; insertAt?: number };
 type EntityKind = "workspace" | "base" | "table";
+type ActiveArea = "table" | "dashboard" | "okrs" | "myWork" | "workflow" | "templates";
+const currentUser = "Hieu Nguyen";
 
 export function WorkspaceApp() {
   const [state, setState] = useState<AppState>(initialAppState);
   const [hydrated, setHydrated] = useState(false);
-  const [activeArea, setActiveArea] = useState<"table" | "dashboard" | "workflow" | "templates">("table");
+  const [activeArea, setActiveArea] = useState<ActiveArea>("table");
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [drawerRecordId, setDrawerRecordId] = useState<string>();
@@ -32,13 +35,15 @@ export function WorkspaceApp() {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [toast, setToast] = useState<string>();
+  const [saveStatus, setSaveStatus] = useState<"saving" | "saved" | "error">("saved");
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
+      const current = window.localStorage.getItem(STORAGE_KEY);
+      const stored = current ?? LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
       // Hydrate the zero-setup demo store once from the external browser store.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (stored) setState(JSON.parse(stored) as AppState);
+      if (stored) setState(normalizeAppState(JSON.parse(stored), !current));
     } catch {
       window.localStorage.removeItem(STORAGE_KEY);
     } finally {
@@ -46,7 +51,18 @@ export function WorkspaceApp() {
     }
   }, []);
   useEffect(() => {
-    if (hydrated) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (!hydrated) return;
+    const savingTimeout = window.setTimeout(() => setSaveStatus("saving"), 0);
+    const timeout = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+        setSaveStatus("saved");
+      } catch {
+        setSaveStatus("error");
+      }
+    }, 180);
+    return () => { window.clearTimeout(savingTimeout); window.clearTimeout(timeout); };
   }, [hydrated, state]);
   useEffect(() => {
     if (!toast) return;
@@ -58,10 +74,12 @@ export function WorkspaceApp() {
   const base = workspace?.bases.find((item) => item.id === state.activeBaseId) ?? workspace?.bases[0];
   const table = base?.tables.find((item) => item.id === state.activeTableId) ?? base?.tables[0];
   const view = table?.views.find((item) => item.id === state.activeViewId) ?? table?.views[0];
+  const taskTable = base?.tables.find((item) => item.id === "table-tasks") ?? table;
+  const displayFields = useMemo(() => table ? enrichOkrFields(table.fields, state) : [], [state, table]);
   const visibleRecords = useMemo(() => table && view ? queryRecords(table.records, table.fields, view.filters, view.sorting, search) : [], [search, table, view]);
   const drawerRecord = table?.records.find((record) => record.id === drawerRecordId);
 
-  if (!workspace || !base || !table || !view) return null;
+  if (!hydrated || !workspace || !base || !table || !view) return <WorkspaceSkeleton />;
 
   const mutateTable = (updater: (current: DataTable) => DataTable) => setState((current) => ({
     ...current,
@@ -79,6 +97,24 @@ export function WorkspaceApp() {
     ...current,
     records: current.records.map((record) => record.id === recordId ? { ...record, values: { ...record.values, [fieldId]: value }, updatedAt: new Date().toISOString() } : record),
   }));
+  const updateTask = (recordId: string, values: Record<string, string | number | null>) => setState((current) => ({
+    ...current,
+    workspaces: current.workspaces.map((workspaceItem) => workspaceItem.id !== current.activeWorkspaceId ? workspaceItem : {
+      ...workspaceItem,
+      bases: workspaceItem.bases.map((baseItem) => baseItem.id !== current.activeBaseId ? baseItem : {
+        ...baseItem,
+        tables: baseItem.tables.map((tableItem) => tableItem.id !== "table-tasks" ? tableItem : {
+          ...tableItem,
+          records: tableItem.records.map((record) => record.id === recordId ? { ...record, values: { ...record.values, ...values }, updatedAt: new Date().toISOString() } : record),
+        }),
+      }),
+    }),
+  }));
+  const openSharedArea = (area: "dashboard" | "okrs" | "myWork") => {
+    const tasks = base.tables.find((item) => item.id === "table-tasks");
+    if (tasks) setState((current) => ({ ...current, activeTableId: tasks.id, activeViewId: tasks.views[0].id }));
+    setActiveArea(area); setSelection(new Set()); setSearch(""); setMobileNavOpen(false);
+  };
 
   const openEntityDialog = (kind: EntityKind) => setEntityDialog({ open: true, kind });
   const switchTable = (tableId: string) => {
@@ -125,13 +161,13 @@ export function WorkspaceApp() {
     setToast(`${name} created`);
   };
 
-  const addRecord = () => {
+  const addRecord = (initialValues: Record<string, CellValue> = {}, openDrawer = true) => {
     const record: BaseRecord = {
       id: createId("record"), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: "Hieu Nguyen", comments: 0, attachments: 0,
-      values: Object.fromEntries(table.fields.map((field, index) => [field.id, field.defaultValue ?? defaultForField(field, index)])),
+      values: { ...Object.fromEntries(table.fields.map((field, index) => [field.id, field.defaultValue ?? defaultForField(field, index)])), ...initialValues },
     };
     mutateTable((current) => ({ ...current, records: [...current.records, record] }));
-    setDrawerRecordId(record.id);
+    if (openDrawer) setDrawerRecordId(record.id);
     setToast("Record added");
   };
 
@@ -196,24 +232,42 @@ export function WorkspaceApp() {
     setToast("Demo workspace restored");
   };
 
+  const exportRecords = async (format: ExportFormat, scope: ExportScope) => {
+    try {
+      const count = await downloadRecords({ fileName: `${table.name}-${view.name}`, format, fields: table.fields, records: visibleRecords, view, selection, scope });
+      setToast(`${count} record${count === 1 ? "" : "s"} exported to ${format.toUpperCase()}`);
+    } catch {
+      setToast("Export failed. Please try again.");
+    }
+  };
+
   return <div className="app-shell">
-    <Sidebar workspaces={state.workspaces} workspace={workspace} base={base} activeWorkspaceId={workspace.id} activeBaseId={base.id} activeTableId={table.id} activeArea={activeArea} mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} onSelectWorkspace={switchWorkspace} onSelectBase={switchBase} onSelectTable={switchTable} onSelectDashboard={() => { setActiveArea("dashboard"); setMobileNavOpen(false); }} onCreate={openEntityDialog} />
+    <Sidebar workspaces={state.workspaces} workspace={workspace} base={base} activeWorkspaceId={workspace.id} activeBaseId={base.id} activeTableId={table.id} activeArea={activeArea} mobileOpen={mobileNavOpen} currentUser={currentUser} onMobileClose={() => setMobileNavOpen(false)} onSelectWorkspace={switchWorkspace} onSelectBase={switchBase} onSelectTable={switchTable} onSelectDashboard={() => openSharedArea("dashboard")} onSelectOkrs={() => openSharedArea("okrs")} onSelectMyWork={() => openSharedArea("myWork")} onCreate={openEntityDialog} />
     <main className="workspace-main">
-      <Topbar workspaceName={workspace.name} baseName={base.name} tableName={activeArea === "dashboard" ? "Dashboard" : table.name} search={search} onSearchChange={setSearch} onMenuOpen={() => setMobileNavOpen(true)} onToast={setToast} />
-      {activeArea === "dashboard" ? <DashboardView table={base.tables.find((item) => item.id === "table-tasks") ?? table} /> : <>
-        <div className="table-titlebar"><div className="table-title-icon"><Database size={16} /></div><div><h1>{table.name}</h1><span>{table.description ?? `${table.records.length} records · ${table.fields.length} fields`}</span></div><div className="titlebar-spacer" /><button className="sync-status"><Cloud size={14} /> Synced locally</button><button className="reset-demo" onClick={resetDemo}><RotateCcw size={13} /> Reset demo</button></div>
+      <Topbar workspaceName={workspace.name} baseName={base.name} tableName={activeArea === "dashboard" ? "Dashboard" : activeArea === "okrs" ? "OKRs" : activeArea === "myWork" ? "My Work" : table.name} search={search} onSearchChange={setSearch} onMenuOpen={() => setMobileNavOpen(true)} onToast={setToast} />
+      {activeArea === "dashboard" ? <DashboardView table={taskTable} onOpenRecord={setDrawerRecordId} /> : activeArea === "okrs" ? <OkrWorkspace store={state.okrs} tasks={taskTable.records} currentUser={currentUser} onChangeStore={(okrs) => setState((current) => ({ ...current, okrs }))} onUpdateTask={updateTask} onOpenTask={setDrawerRecordId} /> : activeArea === "myWork" ? <MyWorkView store={state.okrs} tasks={taskTable.records} currentUser={currentUser} onChangeStore={(okrs) => setState((current) => ({ ...current, okrs }))} onUpdateTask={updateTask} onOpenTask={setDrawerRecordId} /> : <>
+        <div className="table-titlebar"><div className="table-title-icon"><Database size={16} /></div><div><h1>{table.name}</h1><span>{table.description ?? `${table.records.length} records · ${table.fields.length} fields`}</span></div><div className="titlebar-spacer" /><span className={`sync-status save-${saveStatus}`}>{saveStatus === "saving" ? <LoaderCircle size={14} /> : saveStatus === "error" ? <AlertCircle size={14} /> : <Cloud size={14} />}{saveStatus === "saving" ? "Saving…" : saveStatus === "error" ? "Save failed" : "Saved locally"}</span><button className="reset-demo" onClick={resetDemo}><RotateCcw size={13} /> Reset demo</button></div>
         <ViewTabs views={table.views} activeViewId={view.id} onSelect={(viewId) => { setState((current) => ({ ...current, activeViewId: viewId })); setSelection(new Set()); }} onAdd={() => setViewDialogOpen(true)} />
-        <ViewToolbar fields={table.fields} view={view} search={search} resultCount={visibleRecords.length} onSearchChange={setSearch} onUpdateView={updateView} />
-        {view.kind === "grid" ? <DataGrid fields={table.fields} records={visibleRecords} view={view} selection={selection} onSelectionChange={setSelection} onUpdateCell={updateCell} onOpenRecord={setDrawerRecordId} onAddRecord={addRecord} onDeleteSelected={() => deleteRecords(selection)} onBulkStatus={(status) => { const selected = new Set(selection); mutateTable((current) => ({ ...current, records: current.records.map((record) => selected.has(record.id) ? { ...record, values: { ...record.values, status }, updatedAt: new Date().toISOString() } : record) })); setToast("Selected records updated"); }} onFieldAction={handleFieldAction} /> : <AlternateView view={view} records={visibleRecords} fields={table.fields} onUpdateCell={updateCell} onOpenRecord={setDrawerRecordId} />}
-        <footer className="statusbar"><span>{visibleRecords.length} of {table.records.length} records</span><span><i /> Local demo persistence</span><span>{table.fields.length - view.hiddenFieldIds.length} visible fields</span><span className="status-spacer" /><span>Ctrl + arrows to navigate cells</span></footer>
+        <ViewToolbar fields={displayFields} view={view} search={search} resultCount={visibleRecords.length} selectionCount={selection.size} onSearchChange={setSearch} onUpdateView={updateView} onExport={exportRecords} />
+        {view.kind === "grid" ? <DataGrid fields={displayFields} records={visibleRecords} view={view} selection={selection} onSelectionChange={setSelection} onUpdateCell={updateCell} onOpenRecord={setDrawerRecordId} onAddRecord={() => addRecord()} onDeleteSelected={() => deleteRecords(selection)} onBulkStatus={(status) => { const selected = new Set(selection); mutateTable((current) => ({ ...current, records: current.records.map((record) => selected.has(record.id) ? { ...record, values: { ...record.values, status }, updatedAt: new Date().toISOString() } : record) })); setToast("Selected records updated"); }} onFieldAction={handleFieldAction} /> : <AlternateView view={view} records={visibleRecords} fields={displayFields} okrStore={state.okrs} onSetUrgencyRule={(urgencyDueDays) => setState((current) => ({ ...current, okrs: { ...current.okrs, urgencyDueDays } }))} onUpdateCell={updateCell} onOpenRecord={setDrawerRecordId} onCreateRecord={(values) => addRecord(values, false)} />}
+        <footer className="statusbar"><span>{visibleRecords.length} of {table.records.length} records</span><span><i /> Local demo persistence</span><span>{table.fields.filter((field) => !view.hiddenFieldIds.includes(field.id)).length} visible fields</span><span className="status-spacer" /><span>{view.kind === "grid" ? "Ctrl + arrows to navigate cells" : "All views share the same records"}</span></footer>
       </>}
     </main>
-    <RecordDrawer record={drawerRecord} fields={table.fields} onClose={() => setDrawerRecordId(undefined)} onUpdateCell={(fieldId, value) => drawerRecordId && updateCell(drawerRecordId, fieldId, value)} onDelete={() => drawerRecordId && deleteRecords(new Set([drawerRecordId]))} onComment={() => { if (!drawerRecordId) return; mutateTable((current) => ({ ...current, records: current.records.map((record) => record.id === drawerRecordId ? { ...record, comments: (record.comments ?? 0) + 1 } : record) })); setToast("Comment added"); }} />
+    <RecordDrawer record={drawerRecord} fields={displayFields} onClose={() => setDrawerRecordId(undefined)} onUpdateCell={(fieldId, value) => drawerRecordId && updateCell(drawerRecordId, fieldId, value)} onDelete={() => drawerRecordId && deleteRecords(new Set([drawerRecordId]))} onComment={() => { if (!drawerRecordId) return; mutateTable((current) => ({ ...current, records: current.records.map((record) => record.id === drawerRecordId ? { ...record, comments: (record.comments ?? 0) + 1 } : record) })); setToast("Comment added"); }} />
     {fieldDialog.open && <FieldDialog open field={fieldDialog.field} insertAt={fieldDialog.insertAt} recordCount={table.records.length} onClose={() => setFieldDialog({ open: false })} onSave={saveField} />}
     {entityDialog.open && <CreateEntityDialog open kind={entityDialog.kind} onClose={() => setEntityDialog((current) => ({ ...current, open: false }))} onCreate={createEntity} />}
     {viewDialogOpen && <NewViewDialog open onClose={() => setViewDialogOpen(false)} onCreate={createView} />}
     {toast && <div className="toast"><Check size={15} /><span>{toast}</span></div>}
   </div>;
+}
+
+function enrichOkrFields(fields: FieldDefinition[], state: AppState) {
+  const palette = ["violet", "blue", "green", "amber", "cyan", "pink"] as const;
+  return fields.map((field) => {
+    const entities = field.id === "objectiveId" ? state.okrs.objectives.map((objective) => ({ id: objective.id, label: objective.title })) : field.id === "keyResultId" ? state.okrs.keyResults.map((keyResult) => ({ id: keyResult.id, label: keyResult.title })) : undefined;
+    if (!entities) return field;
+    return { ...field, configuration: { ...field.configuration, optionValue: "id" as const, options: entities.map((entity, index) => ({ id: entity.id, label: entity.label, color: palette[index % palette.length] })) } };
+  });
 }
 
 function createBlankTable(name: string): DataTable {
@@ -241,4 +295,8 @@ function migrateValue(value: CellValue | undefined, target: FieldType): CellValu
   if (target === "checkbox") return Boolean(value);
   if (["multiSelect", "multiplePeople", "attachment"].includes(target)) return Array.isArray(value) ? value.map(String) : [String(value)];
   return Array.isArray(value) ? value.join(", ") : String(value);
+}
+
+function WorkspaceSkeleton() {
+  return <div className="workspace-skeleton" aria-label="Loading workspace"><aside><span /><span /><span /><span /></aside><main><header /><div /><div /><section>{Array.from({ length: 9 }, (_, index) => <i key={index} />)}</section></main></div>;
 }

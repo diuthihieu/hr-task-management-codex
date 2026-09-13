@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { columnResizingFeature, columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
-import type { BaseRecord, CellValue, FieldDefinition, SavedView } from "@/domain/base";
+import type { BaseRecord, CellValue, FieldDefinition, SavedView, SelectOption } from "@/domain/base";
 import { getRecordFormatting, groupRecords } from "@/lib/query-engine";
 import { cn, initials } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,7 @@ export function DataGrid({ fields, records, view, selection, onSelectionChange, 
   const [menuFieldId, setMenuFieldId] = useState<string>();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const orderedFields = useMemo(() => {
-    const visible = fields.filter((field) => field.visible && !view.hiddenFieldIds.includes(field.id));
+    const visible = fields.filter((field) => !view.hiddenFieldIds.includes(field.id));
     const order = view.columnOrder.length ? view.columnOrder : fields.map((field) => field.id);
     return [...visible].sort((a, b) => {
       const ai = order.indexOf(a.id);
@@ -75,7 +75,7 @@ export function DataGrid({ fields, records, view, selection, onSelectionChange, 
               const frozen = index < view.frozenFieldCount;
               return <th key={field.id} className={cn(frozen && "frozen-column")} style={{ width: header?.getSize() ?? field.width, minWidth: header?.getSize() ?? field.width, left: frozen ? frozenLeft(index) : undefined }}>
                 <div className="column-header"><FieldTypeIcon field={field} /><span className="column-name">{field.name}</span>{field.required && <span className="required-mark">*</span>}{frozen && <Snowflake size={11} className="frozen-icon" />}<button className="column-menu-trigger" aria-label={`${field.name} field menu`} onClick={() => setMenuFieldId((id) => id === field.id ? undefined : field.id)}><ChevronDown size={14} /></button></div>
-                {menuFieldId === field.id && <FieldMenu first={index === 0} last={index === orderedFields.length - 1} onAction={(action) => { setMenuFieldId(undefined); onFieldAction(field, action); }} />}
+                {menuFieldId === field.id && <FieldMenu first={index === 0} last={index === orderedFields.length - 1} canDelete={!field.required && fields.length > 1} onAction={(action) => { setMenuFieldId(undefined); onFieldAction(field, action); }} />}
                 <div className="column-resizer" onMouseDown={header?.getResizeHandler()} onTouchStart={header?.getResizeHandler()} />
               </th>;
             })}
@@ -113,6 +113,7 @@ function GroupRows({ group, grouped, collapsed, colSpan, onToggle, renderRow }: 
 
 function CellEditor({ rowIndex, columnIndex, field, value, onChange }: { rowIndex: number; columnIndex: number; field: FieldDefinition; value: CellValue | undefined; onChange: (value: CellValue) => void }) {
   const readOnly = ["autoNumber", "formula", "lookup", "rollup", "createdBy", "createdTime", "modifiedBy", "modifiedTime"].includes(field.type);
+  const invalid = Boolean(field.required && (value == null || value === "" || (Array.isArray(value) && value.length === 0)));
   const navigation = (event: React.KeyboardEvent<HTMLElement>) => {
     const directions: Record<string, [number, number]> = { ArrowRight: [0, 1], ArrowLeft: [0, -1], ArrowDown: [1, 0], ArrowUp: [-1, 0] };
     if (!(event.key in directions) || !(event.ctrlKey || event.metaKey)) return;
@@ -120,29 +121,33 @@ function CellEditor({ rowIndex, columnIndex, field, value, onChange }: { rowInde
     const next = document.querySelector<HTMLElement>(`[data-cell="${rowIndex + rowDelta}:${columnIndex + columnDelta}"]`);
     if (next) { event.preventDefault(); next.focus(); }
   };
-  const shared = { "data-cell": `${rowIndex}:${columnIndex}`, onKeyDown: navigation };
+  const shared = { "data-cell": `${rowIndex}:${columnIndex}`, onKeyDown: navigation, "aria-invalid": invalid || undefined };
   if (readOnly) return <span className="readonly-cell">{formatValue(value, field)}</span>;
+  if (field.type === "button") return <button className="cell-action-button" type="button">Run action</button>;
   if (field.type === "checkbox") return <label className="cell-checkbox"><input {...shared} type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} /><span>{Boolean(value) && <Check size={13} />}</span></label>;
-  if (field.configuration?.options?.length || ["status", "singleSelect"].includes(field.type)) {
-    const option = field.configuration?.options?.find((item) => item.label === value);
-    return <div className={cn("select-cell", option && `tone-${option.color}`)}><span className="select-dot" /><select {...shared} aria-label={field.name} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">—</option>{field.configuration?.options?.map((item) => <option key={item.id} value={item.label}>{item.label}</option>)}</select><ChevronDown size={12} /></div>;
+  if (field.configuration?.options?.length) {
+    const optionValue = (item: SelectOption) => field.configuration?.optionValue === "id" ? item.id : item.label;
+    const option = field.configuration.options.find((item) => optionValue(item) === value);
+    return <div className={cn("select-cell", option && `tone-${option.color}`)}><span className="select-dot" /><select {...shared} aria-label={field.name} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">—</option>{field.configuration.options.map((item) => <option key={item.id} value={optionValue(item)}>{item.label}</option>)}</select><ChevronDown size={12} /></div>;
   }
-  if (["person", "multiplePeople"].includes(field.type)) return <div className="person-cell"><span className="mini-avatar">{initials(String(value ?? ""))}</span><input {...shared} aria-label={field.name} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} /></div>;
+  if (field.type === "person") return <div className="person-cell"><span className="mini-avatar">{initials(String(value ?? ""))}</span><input {...shared} aria-label={field.name} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} /></div>;
+  if (["multiSelect", "multiplePeople", "attachment", "relationship", "linkToRecord"].includes(field.type)) return <input {...shared} className="cell-input" aria-label={field.name} value={Array.isArray(value) ? value.join(", ") : String(value ?? "")} onChange={(event) => onChange(event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} title={displayArray(value)} />;
   if (field.type === "progress" || field.type === "percentage") {
     const numeric = Number(value ?? 0);
-    return <div className="progress-cell"><span><i style={{ width: `${Math.max(0, Math.min(100, numeric))}%` }} /></span><input {...shared} aria-label={field.name} type="number" min={0} max={100} value={numeric} onChange={(event) => onChange(Number(event.target.value))} /><b>%</b></div>;
+    return <div className="progress-cell"><span><i style={{ width: `${Math.max(0, Math.min(100, numeric))}%` }} /></span><input {...shared} aria-label={field.name} type="number" min={0} max={100} value={value == null ? "" : numeric} onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))} /><b>%</b></div>;
   }
   if (field.type === "date" || field.type === "dateTime") return <input {...shared} className="cell-input date-input" aria-label={field.name} type={field.type === "date" ? "date" : "datetime-local"} value={String(value ?? "").slice(0, field.type === "date" ? 10 : 16)} onChange={(event) => onChange(event.target.value)} />;
-  if (["number", "integer", "currency", "rating", "duration"].includes(field.type)) return <input {...shared} className="cell-input number-input" aria-label={field.name} type="number" value={Number(value ?? 0)} onChange={(event) => onChange(Number(event.target.value))} />;
-  return <input {...shared} className="cell-input" aria-label={field.name} value={Array.isArray(value) ? value.join(", ") : String(value ?? "")} onChange={(event) => onChange(event.target.value)} title={String(value ?? "")} />;
+  if (["number", "integer", "currency", "rating", "duration"].includes(field.type)) return <input {...shared} className="cell-input number-input" aria-label={field.name} type="number" min={field.configuration?.min} max={field.configuration?.max} step={field.type === "integer" ? 1 : undefined} value={value == null ? "" : Number(value)} onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))} />;
+  const inputType = field.type === "email" ? "email" : field.type === "phone" ? "tel" : field.type === "url" ? "url" : "text";
+  return <input {...shared} type={inputType} className="cell-input" aria-label={field.name} value={Array.isArray(value) ? value.join(", ") : String(value ?? "")} onChange={(event) => onChange(event.target.value)} title={String(value ?? "")} />;
 }
 
-function FieldMenu({ first, last, onAction }: { first: boolean; last: boolean; onAction: (action: FieldAction) => void }) {
+function FieldMenu({ first, last, canDelete, onAction }: { first: boolean; last: boolean; canDelete: boolean; onAction: (action: FieldAction) => void }) {
   const item = (action: FieldAction, Icon: React.ComponentType<{ size?: number }>, label: Tunes, danger = false, disabled = false) => <button className={cn(danger && "danger")} disabled={disabled} onClick={() => onAction(action)}><Icon size={14} />{label}</button>;
   return <div className="field-menu">
     {item("edit", Pencil, "Edit field")}{item("duplicate", Copy, "Duplicate field")}{item("hide", EyeOff, "Hide field")}<span />
     {item("insertLeft", ArrowLeftToLine, "Insert left")}{item("insertRight", ArrowRightToLine, "Insert right")}{item("moveLeft", ArrowUp, "Move left", false, first)}{item("moveRight", ArrowDown, "Move right", false, last)}{item("freeze", Snowflake, "Freeze up to this field")}<span />
-    {item("sortAsc", ArrowDownToLine, "Sort ascending")}{item("sortDesc", ArrowUpDown, "Sort descending")}{item("group", Columns3, "Group by field")}{item("filter", ListFilter, "Filter by field")}<span />{item("delete", Trash2, "Delete field", true)}
+    {item("sortAsc", ArrowDownToLine, "Sort ascending")}{item("sortDesc", ArrowUpDown, "Sort descending")}{item("group", Columns3, "Group by field")}{item("filter", ListFilter, "Filter by field")}<span />{item("delete", Trash2, canDelete ? "Delete field" : "Required fields cannot be deleted", true, !canDelete)}
   </div>;
 }
 
@@ -159,6 +164,8 @@ function formatValue(value: CellValue | undefined, field: FieldDefinition) {
   if (field.type === "createdTime" || field.type === "modifiedTime") return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(String(value)));
   return Array.isArray(value) ? value.join(", ") : String(value);
 }
+
+function displayArray(value: CellValue | undefined) { return Array.isArray(value) ? value.join(", ") : String(value ?? ""); }
 
 function rowStyle(record: BaseRecord, view: SavedView, fields: FieldDefinition[]): React.CSSProperties {
   const rule = getRecordFormatting(record, view.conditionalFormatting, fields).find((item) => item.target === "row");

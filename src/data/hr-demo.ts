@@ -3,6 +3,7 @@ import type {
   BaseRecord,
   DataTable,
   FieldDefinition,
+  OkrStore,
   SavedView,
   SelectOption,
 } from "@/domain/base";
@@ -65,9 +66,15 @@ const taskFields: FieldDefinition[] = [
     { id: "finance", label: "Finance", color: "green" },
     { id: "all", label: "Company-wide", color: "blue" },
   ] } },
-  { id: "createdBy", name: "Created By", type: "createdBy", order: 14, width: 140, visible: false, frozen: false },
-  { id: "createdTime", name: "Created Time", type: "createdTime", order: 15, width: 150, visible: false, frozen: false },
-  { id: "modifiedTime", name: "Modified Time", type: "modifiedTime", order: 16, width: 150, visible: false, frozen: false },
+  { id: "objectiveId", name: "Objective", type: "relationship", order: 14, width: 220, visible: true, frozen: false, configuration: { description: "Objective this task contributes to." } },
+  { id: "keyResultId", name: "Key Result", type: "relationship", order: 15, width: 230, visible: true, frozen: false, configuration: { description: "Preferred direct OKR link used for progress roll-up." } },
+  { id: "okrContributionWeight", name: "OKR Contribution Weight", type: "percentage", order: 16, width: 180, visible: true, frozen: false, configuration: { min: 0, max: 100 } },
+  { id: "importance", name: "Importance", type: "singleSelect", order: 17, width: 135, visible: true, frozen: false, configuration: { options: [{ id: "important", label: "Important", color: "red" }, { id: "not-important", label: "Not Important", color: "slate" }] } },
+  { id: "urgency", name: "Urgency", type: "singleSelect", order: 18, width: 125, visible: true, frozen: false, configuration: { options: [{ id: "urgent", label: "Urgent", color: "orange" }, { id: "not-urgent", label: "Not Urgent", color: "blue" }] } },
+  { id: "dependencies", name: "Dependencies", type: "relationship", order: 19, width: 190, visible: true, frozen: false, configuration: { relatedTableId: "table-tasks", description: "Tasks that must finish before this task can complete." } },
+  { id: "createdBy", name: "Created By", type: "createdBy", order: 20, width: 140, visible: false, frozen: false },
+  { id: "createdTime", name: "Created Time", type: "createdTime", order: 21, width: 150, visible: false, frozen: false },
+  { id: "modifiedTime", name: "Modified Time", type: "modifiedTime", order: 22, width: 150, visible: false, frozen: false },
 ];
 
 type TaskSeed = [string, string, string, string, string, string, string, string, string, string, number, number, number, string];
@@ -99,6 +106,12 @@ const taskRecords: BaseRecord[] = taskSeeds.map((seed, index) => ({
     taskName: seed[0], category: seed[1], execution: seed[2], criteria: seed[3], owner: seed[4],
     frequency: seed[5], priority: seed[6], status: seed[7], startDate: seed[8], dueDate: seed[9],
     progress: seed[10], estimatedHours: seed[11], actualHours: seed[12], department: seed[13],
+    objectiveId: index < 6 ? "objective-operations" : index >= 11 && index < 16 ? "objective-compliance" : null,
+    keyResultId: index < 3 ? "kr-turnaround" : index < 6 ? "kr-automation" : index >= 11 && index < 16 ? "kr-compliance" : null,
+    okrContributionWeight: index < 3 ? [40, 40, 20][index] : null,
+    importance: ["High", "Critical"].includes(seed[6]) ? "Important" : "Not Important",
+    urgency: !["Done", "Cancelled"].includes(seed[7]) && seed[9] <= "2026-09-16" ? "Urgent" : "Not Urgent",
+    dependencies: index > 0 && index % 3 === 0 ? [`task-${index}`] : [],
     createdBy: "Hieu Nguyen", createdTime: "2026-08-20T09:00:00.000Z", modifiedTime: "2026-09-11T16:30:00.000Z",
   },
   createdAt: "2026-08-20T09:00:00.000Z",
@@ -113,7 +126,7 @@ const emptyFilters = (id: string) => ({ id, conjunction: "and" as const, conditi
 const taskViews: SavedView[] = [
   {
     id: "view-all-tasks", name: "All Tasks", kind: "grid", filters: emptyFilters("fg-all"), sorting: [],
-    hiddenFieldIds: ["createdBy", "createdTime", "modifiedTime"], columnOrder: taskFields.map((field) => field.id),
+    hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"], columnOrder: taskFields.map((field) => field.id),
     frozenFieldCount: 1, rowHeight: "compact", conditionalFormatting: [
       { id: "cf-blocked", name: "Blocked tasks", enabled: true, target: "row", style: { background: "var(--format-red)" }, conditions: { id: "cfg-blocked", conjunction: "and", conditions: [{ id: "c-blocked", fieldId: "status", operator: "equals", value: "Blocked" }] } },
       { id: "cf-done", name: "Completed progress", enabled: true, target: "cell", targetFieldId: "progress", style: { foreground: "var(--success)" }, conditions: { id: "cfg-done", conjunction: "and", conditions: [{ id: "c-done", fieldId: "progress", operator: "gte", value: 100 }] } },
@@ -122,7 +135,7 @@ const taskViews: SavedView[] = [
   {
     id: "view-my-tasks", name: "My Tasks", kind: "grid", personal: true,
     filters: { id: "fg-mine", conjunction: "and", conditions: [{ id: "f-mine", fieldId: "owner", operator: "equals", value: "Linh Nguyen" }] },
-    sorting: [{ id: "sort-mine", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: ["createdBy", "createdTime", "modifiedTime"],
+    sorting: [{ id: "sort-mine", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"],
     columnOrder: taskFields.map((field) => field.id), frozenFieldCount: 1, rowHeight: "compact", conditionalFormatting: [],
   },
   {
@@ -131,18 +144,48 @@ const taskViews: SavedView[] = [
       { id: "f-overdue-date", fieldId: "dueDate", operator: "before", value: "2026-09-12" },
       { id: "f-overdue-status", fieldId: "status", operator: "notEquals", value: "Done" },
     ] }, sorting: [{ id: "sort-overdue", fieldId: "dueDate", direction: "asc" }],
-    hiddenFieldIds: ["createdBy", "createdTime", "modifiedTime"], columnOrder: taskFields.map((field) => field.id),
+    hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"], columnOrder: taskFields.map((field) => field.id),
     frozenFieldCount: 1, rowHeight: "compact", conditionalFormatting: [],
   },
   {
     id: "view-completed", name: "Completed Tasks", kind: "grid",
     filters: { id: "fg-completed", conjunction: "and", conditions: [{ id: "f-completed", fieldId: "status", operator: "equals", value: "Done" }] },
-    sorting: [{ id: "sort-completed", fieldId: "dueDate", direction: "desc" }], hiddenFieldIds: ["createdBy", "createdTime", "modifiedTime"],
+    sorting: [{ id: "sort-completed", fieldId: "dueDate", direction: "desc" }], hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"],
     columnOrder: taskFields.map((field) => field.id), frozenFieldCount: 1, rowHeight: "compact", conditionalFormatting: [],
   },
   { id: "view-kanban-status", name: "Kanban by Status", kind: "kanban", filters: emptyFilters("fg-kanban"), sorting: [], groupByFieldId: "status", hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
   { id: "view-calendar", name: "Calendar", kind: "calendar", filters: emptyFilters("fg-calendar"), sorting: [], hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
+  { id: "view-gantt", name: "Gantt", kind: "gantt", filters: emptyFilters("fg-gantt"), sorting: [{ id: "sort-gantt", fieldId: "startDate", direction: "asc" }], hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
+  { id: "view-gallery", name: "Gallery", kind: "gallery", filters: emptyFilters("fg-gallery"), sorting: [{ id: "sort-gallery", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
+  { id: "view-form", name: "Form", kind: "form", filters: emptyFilters("fg-form"), sorting: [], hiddenFieldIds: ["createdBy", "createdTime", "modifiedTime"], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
+  { id: "view-eisenhower", name: "Eisenhower", kind: "eisenhower", filters: emptyFilters("fg-eisenhower"), sorting: [{ id: "sort-eisenhower", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"], columnOrder: taskFields.map((field) => field.id), frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
 ];
+
+const okrs: OkrStore = {
+  teams: [
+    { id: "team-people", name: "People Operations", color: "violet" },
+    { id: "team-finance", name: "Finance & Payroll", color: "green" },
+    { id: "team-company", name: "Company-wide", color: "blue" },
+  ],
+  cycles: [
+    { id: "cycle-q3-2026", name: "Q3 2026", type: "quarter", startDate: "2026-07-01", endDate: "2026-09-30" },
+    { id: "cycle-q4-2026", name: "Q4 2026", type: "quarter", startDate: "2026-10-01", endDate: "2026-12-31" },
+    { id: "cycle-2026", name: "2026", type: "year", startDate: "2026-01-01", endDate: "2026-12-31" },
+  ],
+  objectives: [
+    { id: "objective-operations", title: "Improve HR Operational Excellence", description: "Make core HR services faster, predictable and easier to audit.", teamId: "team-people", owner: "Hieu Nguyen", contributors: ["Linh Nguyen", "Minh Tran"], cycleId: "cycle-q3-2026", startDate: "2026-07-01", endDate: "2026-09-30", status: "On Track", confidence: 82, priority: "Critical" },
+    { id: "objective-capability", title: "Build manager capability at scale", description: "Equip every people manager with consistent operating practices.", teamId: "team-company", owner: "Bao Le", contributors: ["Hieu Nguyen", "An Pham"], cycleId: "cycle-q4-2026", startDate: "2026-10-01", endDate: "2026-12-31", status: "At Risk", confidence: 64, priority: "High" },
+    { id: "objective-compliance", title: "Strengthen workforce compliance", description: "Reduce compliance exceptions and close audit findings on time.", teamId: "team-finance", owner: "Linh Nguyen", contributors: ["Hieu Nguyen", "Thu Vo"], cycleId: "cycle-q3-2026", startDate: "2026-07-01", endDate: "2026-09-30", status: "Off Track", confidence: 48, priority: "High" },
+  ],
+  keyResults: [
+    { id: "kr-turnaround", objectiveId: "objective-operations", title: "Reduce HR processing turnaround time by 30%", owner: "Hieu Nguyen", type: "task", targetValue: 100, currentValue: 0, startValue: 0, unit: "%", weight: 60, status: "On Track" },
+    { id: "kr-automation", objectiveId: "objective-operations", title: "Automate 6 high-volume HR workflows", owner: "Linh Nguyen", type: "numeric", targetValue: 6, currentValue: 4, startValue: 0, unit: "workflows", weight: 40, status: "On Track" },
+    { id: "kr-manager", objectiveId: "objective-capability", title: "Reach 90% manager essentials completion", owner: "Bao Le", type: "percentage", targetValue: 90, currentValue: 64, startValue: 0, unit: "%", weight: 100, status: "At Risk" },
+    { id: "kr-compliance", objectiveId: "objective-compliance", title: "Close priority compliance findings", owner: "Linh Nguyen", type: "task", targetValue: 100, currentValue: 0, startValue: 0, unit: "%", weight: 70, status: "Off Track" },
+    { id: "kr-confidence", objectiveId: "objective-compliance", title: "Raise audit confidence to 85%", owner: "Thu Vo", type: "manual", targetValue: 85, currentValue: 0, startValue: 45, manualProgress: 55, unit: "%", weight: 30, status: "At Risk" },
+  ],
+  urgencyDueDays: null,
+};
 
 function simpleTable(
   id: string,
@@ -203,4 +246,5 @@ export const initialAppState: AppState = {
   activeBaseId: "base-hr-operations",
   activeTableId: "table-tasks",
   activeViewId: "view-all-tasks",
+  okrs,
 };

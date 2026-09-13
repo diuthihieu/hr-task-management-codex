@@ -1,35 +1,89 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, CheckCircle2, CircleAlert, Clock3, MoreHorizontal, Users } from "lucide-react";
-import type { DataTable } from "@/domain/base";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, CircleAlert, Clock3, FilterX, RefreshCw, Users } from "lucide-react";
+import type { BaseRecord, DataTable } from "@/domain/base";
 import { Button } from "@/components/ui/button";
 
-export function DashboardView({ table }: { table: DataTable }) {
-  const total = table.records.length;
-  const done = table.records.filter((record) => record.values.status === "Done").length;
-  const overdue = table.records.filter((record) => !["Done", "Cancelled"].includes(String(record.values.status)) && String(record.values.dueDate) < "2026-09-12").length;
-  const inProgress = table.records.filter((record) => record.values.status === "In Progress").length;
-  const categories = [...new Set(table.records.map((record) => String(record.values.category)))].map((category) => ({ category, count: table.records.filter((record) => record.values.category === category).length })).sort((a, b) => b.count - a.count).slice(0, 7);
-  const statuses = ["Done", "In Progress", "Pending", "Blocked", "Not Started"].map((status) => ({ status, count: table.records.filter((record) => record.values.status === status).length }));
-  const upcoming = [...table.records].filter((record) => !["Done", "Cancelled"].includes(String(record.values.status))).sort((a, b) => String(a.values.dueDate).localeCompare(String(b.values.dueDate))).slice(0, 5);
+const statusColors: Record<string, string> = {
+  Done: "var(--success)",
+  "In Progress": "var(--accent)",
+  Pending: "var(--warning)",
+  Blocked: "var(--danger)",
+  "Not Started": "var(--muted-2)",
+  Cancelled: "var(--border-strong)",
+};
+
+type DashboardFilters = { status: string; department: string; owner: string };
+const emptyFilters: DashboardFilters = { status: "", department: "", owner: "" };
+
+export function DashboardView({ table, onOpenRecord }: { table: DataTable; onOpenRecord: (recordId: string) => void }) {
+  const [filters, setFilters] = useState<DashboardFilters>(() => readFilters(table.id));
+  const { status, department, owner } = filters;
+  useEffect(() => {
+    window.localStorage.setItem(`orbit-base:dashboard:${table.id}`, JSON.stringify(filters));
+  }, [filters, table.id]);
+  const today = new Date().toISOString().slice(0, 10);
+  const options = useMemo(() => ({
+    statuses: unique(table.records, "status"),
+    departments: unique(table.records, "department"),
+    owners: unique(table.records, "owner"),
+  }), [table.records]);
+  const records = useMemo(() => table.records.filter((record) =>
+    (!status || record.values.status === status) &&
+    (!department || record.values.department === department) &&
+    (!owner || record.values.owner === owner)
+  ), [department, owner, status, table.records]);
+  const active = Boolean(status || department || owner);
+  const total = records.length;
+  const done = records.filter((record) => record.values.status === "Done").length;
+  const overdue = records.filter((record) => !["Done", "Cancelled"].includes(String(record.values.status)) && validDate(record.values.dueDate) && String(record.values.dueDate).slice(0, 10) < today).length;
+  const inProgress = records.filter((record) => record.values.status === "In Progress").length;
+  const averageProgress = total ? Math.round(records.reduce((sum, record) => sum + Number(record.values.progress ?? 0), 0) / total) : 0;
+  const categories = countBy(records, "category").slice(0, 7);
+  const statuses = countBy(records, "status");
+  const upcoming = [...records].filter((record) => !["Done", "Cancelled"].includes(String(record.values.status)) && validDate(record.values.dueDate)).sort((a, b) => String(a.values.dueDate).localeCompare(String(b.values.dueDate))).slice(0, 6);
+  const donut = conicSegments(statuses, total);
+
   return <div className="dashboard-page">
-    <div className="dashboard-title"><div><span>HR OPERATIONS</span><h1>Operations dashboard</h1><p>Live signal across tasks, service levels and team capacity.</p></div><div><Button variant="secondary">This month</Button><Button variant="primary">Edit dashboard</Button></div></div>
+    <div className="dashboard-title"><div><span>HR OPERATIONS</span><h1>Operations dashboard</h1><p>Live metrics calculated from the shared task table.</p></div><div className="dashboard-updated"><RefreshCw size={13} /><span>Updated from Base</span></div></div>
+    <section className="dashboard-filters" aria-label="Dashboard filters"><div><strong>Dashboard filters</strong><span>{total} matching records</span></div><label>Status<select aria-label="Dashboard status filter" value={status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">All statuses</option>{options.statuses.map((value) => <option key={value}>{value}</option>)}</select></label><label>Department<select aria-label="Dashboard department filter" value={department} onChange={(event) => setFilters((current) => ({ ...current, department: event.target.value }))}><option value="">All departments</option>{options.departments.map((value) => <option key={value}>{value}</option>)}</select></label><label>Owner<select aria-label="Dashboard owner filter" value={owner} onChange={(event) => setFilters((current) => ({ ...current, owner: event.target.value }))}><option value="">All owners</option>{options.owners.map((value) => <option key={value}>{value}</option>)}</select></label><Button variant="ghost" size="sm" disabled={!active} onClick={() => setFilters(emptyFilters)}><FilterX size={14} /> Clear</Button></section>
     <div className="kpi-grid">
-      <Kpi label="Total tasks" value={total} detail="Across 11 categories" icon={Clock3} trend="+8.2%" positive />
-      <Kpi label="Completed" value={done} detail={`${Math.round(done / total * 100)}% completion rate`} icon={CheckCircle2} trend="+12%" positive />
-      <Kpi label="In progress" value={inProgress} detail="Active ownership" icon={Users} trend="On track" positive />
-      <Kpi label="Overdue" value={overdue} detail="Requires attention" icon={CircleAlert} trend="-2" />
+      <Kpi label="Total tasks" value={total} detail={`${countBy(records, "category").length} active categories`} icon={Clock3} />
+      <Kpi label="Completed" value={done} detail={`${total ? Math.round(done / total * 100) : 0}% completion rate`} icon={CheckCircle2} tone="success" />
+      <Kpi label="In progress" value={inProgress} detail={`${averageProgress}% average progress`} icon={Users} />
+      <Kpi label="Overdue" value={overdue} detail={overdue ? "Requires attention" : "No overdue work"} icon={CircleAlert} tone={overdue ? "danger" : "success"} />
     </div>
     <div className="dashboard-grid">
-      <section className="chart-card span-7"><CardHeader title="Tasks by category" subtitle="Current workload distribution" /><div className="horizontal-bars">{categories.map((item) => <div key={item.category}><span>{item.category}</span><i><b style={{ width: `${(item.count / Math.max(...categories.map((x) => x.count))) * 100}%` }} /></i><strong>{item.count}</strong></div>)}</div></section>
-      <section className="chart-card span-5"><CardHeader title="Task status" subtitle="18 records in the selected period" /><div className="donut-wrap"><div className="donut" style={{ background: `conic-gradient(var(--success) 0 ${done / total * 360}deg, var(--accent) ${done / total * 360}deg ${(done + inProgress) / total * 360}deg, var(--warning) ${(done + inProgress) / total * 360}deg 280deg, var(--danger) 280deg 310deg, var(--track) 310deg)` }}><span><strong>{total}</strong><small>Total tasks</small></span></div><div className="donut-legend">{statuses.map((item, index) => <div key={item.status}><i className={`legend-${index}`} /><span>{item.status}</span><strong>{item.count}</strong></div>)}</div></div></section>
-      <section className="chart-card span-12"><CardHeader title="Upcoming deadlines" subtitle="Ordered by the nearest due date" /><div className="upcoming-table"><div><span>Task</span><span>Owner</span><span>Status</span><span>Due date</span></div>{upcoming.map((record) => <div key={record.id}><strong>{record.values.taskName}</strong><span>{record.values.owner}</span><span><i className="status-indicator" />{record.values.status}</span><time>{new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(String(record.values.dueDate)))}</time></div>)}</div></section>
+      <section className="chart-card span-7"><CardHeader title="Tasks by category" subtitle={`${total} records in the current dashboard slice`} /><div className="horizontal-bars">{categories.length ? categories.map((item) => <div key={item.label}><span title={item.label}>{item.label}</span><i><b style={{ width: `${(item.count / Math.max(...categories.map((entry) => entry.count))) * 100}%` }} /></i><strong>{item.count}</strong></div>) : <DashboardEmpty />}</div></section>
+      <section className="chart-card span-5"><CardHeader title="Task status" subtitle="Exact distribution by workflow state" /><div className="donut-wrap">{total ? <><div className="donut" style={{ background: donut }}><span><strong>{total}</strong><small>Total tasks</small></span></div><div className="donut-legend">{statuses.map((item) => <div key={item.label}><i style={{ background: statusColors[item.label] ?? "var(--muted-2)" }} /><span>{item.label}</span><strong>{item.count}</strong></div>)}</div></> : <DashboardEmpty />}</div></section>
+      <section className="chart-card span-12"><CardHeader title="Upcoming deadlines" subtitle="Open records ordered by the nearest due date" /><div className="upcoming-table"><div><span>Task</span><span>Owner</span><span>Status</span><span>Due date</span></div>{upcoming.map((record) => <button key={record.id} onClick={() => onOpenRecord(record.id)}><strong>{record.values.taskName}</strong><span>{record.values.owner}</span><span><i className="status-indicator" style={{ background: statusColors[String(record.values.status)] }} />{record.values.status}</span><time>{formatDate(record.values.dueDate)}</time></button>)}{upcoming.length === 0 && <DashboardEmpty />}</div></section>
     </div>
   </div>;
 }
 
-function Kpi({ label, value, detail, icon: Icon, trend, positive }: { label: string; value: number; detail: string; icon: React.ComponentType<{ size?: number }>; trend: string; positive?: boolean }) {
-  return <section className="kpi-card"><div className="kpi-icon"><Icon size={18} /></div><span>{label}</span><strong>{value}</strong><footer><small>{detail}</small><b className={positive ? "positive" : "negative"}>{positive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}{trend}</b></footer></section>;
+function Kpi({ label, value, detail, icon: Icon, tone }: { label: string; value: number; detail: string; icon: React.ComponentType<{ size?: number }>; tone?: "success" | "danger" }) {
+  return <section className="kpi-card"><div className={`kpi-icon ${tone ?? ""}`}><Icon size={18} /></div><span>{label}</span><strong>{value}</strong><footer><small>{detail}</small></footer></section>;
 }
 
-function CardHeader({ title, subtitle }: { title: string; subtitle: string }) { return <header className="card-header"><div><strong>{title}</strong><small>{subtitle}</small></div><Button variant="ghost" size="icon"><MoreHorizontal size={17} /></Button></header>; }
+function CardHeader({ title, subtitle }: { title: string; subtitle: string }) { return <header className="card-header"><div><strong>{title}</strong><small>{subtitle}</small></div></header>; }
+function DashboardEmpty() { return <div className="dashboard-empty"><strong>No matching data</strong><span>Clear or change dashboard filters.</span></div>; }
+function unique(records: BaseRecord[], fieldId: string) { return [...new Set(records.map((record) => String(record.values[fieldId] ?? "")).filter(Boolean))].sort(); }
+function countBy(records: BaseRecord[], fieldId: string) { return unique(records, fieldId).map((label) => ({ label, count: records.filter((record) => String(record.values[fieldId] ?? "") === label).length })).sort((a, b) => b.count - a.count); }
+function validDate(value: BaseRecord["values"][string] | undefined) { return typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value) && !Number.isNaN(new Date(value).getTime()); }
+function formatDate(value: BaseRecord["values"][string] | undefined) { return validDate(value) ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(String(value))) : "Not set"; }
+function conicSegments(items: Array<{ label: string; count: number }>, total: number) {
+  let cursor = 0;
+  const segments = items.map((item) => { const start = cursor; cursor += total ? item.count / total * 360 : 0; return `${statusColors[item.label] ?? "var(--muted-2)"} ${start}deg ${cursor}deg`; });
+  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function readFilters(tableId: string): DashboardFilters {
+  if (typeof window === "undefined") return emptyFilters;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(`orbit-base:dashboard:${tableId}`) ?? "null") as Partial<DashboardFilters> | null;
+    return { status: String(parsed?.status ?? ""), department: String(parsed?.department ?? ""), owner: String(parsed?.owner ?? "") };
+  } catch {
+    return emptyFilters;
+  }
+}

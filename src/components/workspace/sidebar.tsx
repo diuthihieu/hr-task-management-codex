@@ -14,6 +14,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Target,
   Table2,
   Users,
   Workflow,
@@ -46,6 +47,9 @@ export function Sidebar({
   onSelectWorkspace,
   onSelectBase,
   onSelectDashboard,
+  onSelectOkrs,
+  onSelectMyWork,
+  currentUser,
   onCreate,
 }: {
   workspaces: WorkspaceDefinition[];
@@ -54,13 +58,16 @@ export function Sidebar({
   activeWorkspaceId: string;
   activeBaseId: string;
   activeTableId: string;
-  activeArea: "table" | "dashboard" | "workflow" | "templates";
+  activeArea: "table" | "dashboard" | "okrs" | "myWork" | "workflow" | "templates";
   mobileOpen: boolean;
   onMobileClose: () => void;
   onSelectTable: (id: string) => void;
   onSelectWorkspace: (id: string) => void;
   onSelectBase: (id: string) => void;
   onSelectDashboard: () => void;
+  onSelectOkrs: () => void;
+  onSelectMyWork: () => void;
+  currentUser: string;
   onCreate: (kind: "workspace" | "base" | "table") => void;
 }) {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -90,7 +97,8 @@ export function Sidebar({
           <button className={cn("nav-item", activeArea === "dashboard" && "active")} onClick={onSelectDashboard}>
             <LayoutDashboard size={16} /><span>Dashboard</span>
           </button>
-          <button className="nav-item"><BellRing size={16} /><span>My work</span><span className="nav-count">6</span></button>
+          <button className={cn("nav-item", activeArea === "myWork" && "active")} onClick={onSelectMyWork}><BellRing size={16} /><span>My work</span></button>
+          <button className={cn("nav-item", activeArea === "okrs" && "active")} onClick={onSelectOkrs}><Target size={16} /><span>OKRs</span></button>
         </div>
 
         <div className="section-label">
@@ -123,7 +131,7 @@ export function Sidebar({
         <button className="nav-item"><Settings size={16} /><span>Workspace settings</span></button>
         <div className="user-card">
           <span className="user-avatar">HN</span>
-          <span><strong>Hieu Nguyen</strong><small>Workspace owner</small></span>
+          <span><strong>{currentUser}</strong><small>Workspace owner</small></span>
           <Database size={14} />
         </div>
       </div>

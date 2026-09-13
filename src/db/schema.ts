@@ -15,9 +15,13 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const memberRole = pgEnum("member_role", ["owner", "admin", "editor", "contributor", "viewer"]);
-export const viewKind = pgEnum("view_kind", ["grid", "kanban", "calendar", "gantt", "gallery", "form"]);
+export const viewKind = pgEnum("view_kind", ["grid", "kanban", "calendar", "gantt", "gallery", "form", "eisenhower"]);
 export const workflowStatus = pgEnum("workflow_status", ["draft", "active", "paused", "archived"]);
 export const executionStatus = pgEnum("execution_status", ["queued", "running", "succeeded", "failed", "retrying"]);
+export const okrStatus = pgEnum("okr_status", ["on_track", "at_risk", "off_track", "completed"]);
+export const keyResultType = pgEnum("key_result_type", ["task", "numeric", "percentage", "manual"]);
+export const taskImportance = pgEnum("task_importance", ["important", "not_important"]);
+export const taskUrgency = pgEnum("task_urgency", ["urgent", "not_urgent"]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -57,6 +61,61 @@ export const bases = pgTable("bases", {
   settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 }, (table) => [index("bases_workspace_idx").on(table.workspaceId)]);
+
+export const teams = pgTable("teams", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("violet"),
+  ...timestamps,
+}, (table) => [index("teams_workspace_idx").on(table.workspaceId)]);
+
+export const okrCycles = pgTable("okr_cycles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  startDate: timestamp("start_date", { withTimezone: true }).notNull(),
+  endDate: timestamp("end_date", { withTimezone: true }).notNull(),
+  ...timestamps,
+}, (table) => [index("okr_cycles_workspace_dates_idx").on(table.workspaceId, table.startDate, table.endDate)]);
+
+export const objectives = pgTable("objectives", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id").notNull().references(() => teams.id, { onDelete: "restrict" }),
+  cycleId: uuid("cycle_id").notNull().references(() => okrCycles.id, { onDelete: "restrict" }),
+  ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  startDate: timestamp("start_date", { withTimezone: true }).notNull(),
+  endDate: timestamp("end_date", { withTimezone: true }).notNull(),
+  status: okrStatus("status").notNull().default("on_track"),
+  confidence: numeric("confidence", { precision: 5, scale: 2 }).notNull().default("0"),
+  priority: text("priority").notNull().default("medium"),
+  ...timestamps,
+}, (table) => [index("objectives_workspace_cycle_idx").on(table.workspaceId, table.cycleId), index("objectives_team_owner_idx").on(table.teamId, table.ownerId)]);
+
+export const objectiveContributors = pgTable("objective_contributors", {
+  objectiveId: uuid("objective_id").notNull().references(() => objectives.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+}, (table) => [primaryKey({ columns: [table.objectiveId, table.userId] }), index("objective_contributors_user_idx").on(table.userId)]);
+
+export const keyResults = pgTable("key_results", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  objectiveId: uuid("objective_id").notNull().references(() => objectives.id, { onDelete: "cascade" }),
+  ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  title: text("title").notNull(),
+  type: keyResultType("type").notNull(),
+  targetValue: numeric("target_value", { precision: 16, scale: 4 }).notNull().default("100"),
+  currentValue: numeric("current_value", { precision: 16, scale: 4 }).notNull().default("0"),
+  startValue: numeric("start_value", { precision: 16, scale: 4 }).notNull().default("0"),
+  manualProgress: numeric("manual_progress", { precision: 5, scale: 2 }),
+  unit: text("unit").notNull().default("%"),
+  weight: numeric("weight", { precision: 5, scale: 2 }).notNull().default("100"),
+  status: okrStatus("status").notNull().default("on_track"),
+  ...timestamps,
+}, (table) => [index("key_results_objective_idx").on(table.objectiveId), index("key_results_owner_idx").on(table.ownerId)]);
 
 export const dataTables = pgTable("data_tables", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -100,6 +159,16 @@ export const dataRecords = pgTable("data_records", {
   index("records_table_position_idx").on(table.tableId, table.position),
   index("records_data_gin_idx").using("gin", table.data),
 ]);
+
+export const taskOkrLinks = pgTable("task_okr_links", {
+  recordId: uuid("record_id").primaryKey().references(() => dataRecords.id, { onDelete: "cascade" }),
+  objectiveId: uuid("objective_id").references(() => objectives.id, { onDelete: "set null" }),
+  keyResultId: uuid("key_result_id").references(() => keyResults.id, { onDelete: "set null" }),
+  contributionWeight: numeric("contribution_weight", { precision: 5, scale: 2 }),
+  importance: taskImportance("importance").notNull().default("not_important"),
+  urgency: taskUrgency("urgency").notNull().default("not_urgent"),
+  ...timestamps,
+}, (table) => [index("task_okr_links_objective_idx").on(table.objectiveId), index("task_okr_links_key_result_idx").on(table.keyResultId)]);
 
 export const recordValues = pgTable("record_values", {
   recordId: uuid("record_id").notNull().references(() => dataRecords.id, { onDelete: "cascade" }),

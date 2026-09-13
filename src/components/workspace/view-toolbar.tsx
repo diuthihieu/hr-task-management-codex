@@ -6,10 +6,13 @@ import {
   Check,
   ChevronDown,
   Columns3,
+  Download,
+  FileSpreadsheet,
   Filter,
   FormInput,
   GalleryHorizontalEnd,
   GanttChartSquare,
+  Grid2X2,
   KanbanSquare,
   Layers3,
   MoreHorizontal,
@@ -33,6 +36,7 @@ import type {
 import { createId } from "@/domain/base";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { ExportFormat, ExportScope } from "@/lib/export";
 
 const viewIcons: Record<ViewKind, React.ComponentType<{ size?: number }>> = {
   grid: Table2,
@@ -41,6 +45,7 @@ const viewIcons: Record<ViewKind, React.ComponentType<{ size?: number }>> = {
   gantt: GanttChartSquare,
   gallery: GalleryHorizontalEnd,
   form: FormInput,
+  eisenhower: Grid2X2,
 };
 
 export function ViewTabs({
@@ -72,22 +77,26 @@ export function ViewTabs({
   );
 }
 
-type Panel = "filter" | "sort" | "group" | "format" | "fields" | "density" | null;
+type Panel = "filter" | "sort" | "group" | "format" | "fields" | "density" | "export" | null;
 
 export function ViewToolbar({
   fields,
   view,
   search,
   resultCount,
+  selectionCount,
   onSearchChange,
   onUpdateView,
+  onExport,
 }: {
   fields: FieldDefinition[];
   view: SavedView;
   search: string;
   resultCount: number;
+  selectionCount: number;
   onSearchChange: (value: string) => void;
   onUpdateView: (patch: Partial<SavedView>) => void;
+  onExport: (format: ExportFormat, scope: ExportScope) => void;
 }) {
   const [panel, setPanel] = useState<Panel>(null);
   const activeFilters = view.filters.conditions.length;
@@ -100,13 +109,14 @@ export function ViewToolbar({
     <div className="toolbar-shell">
       <div className="view-toolbar">
         <div className="toolbar-actions">
-          <ToolbarButton icon={Columns3} label="Fields" count={hidden || undefined} active={panel === "fields"} onClick={() => toggle("fields")} />
           <ToolbarButton icon={Filter} label="Filter" count={activeFilters || undefined} active={panel === "filter"} emphasized={activeFilters > 0} onClick={() => toggle("filter")} />
           <ToolbarButton icon={ArrowDownAZ} label="Sort" count={activeSorts || undefined} active={panel === "sort"} emphasized={activeSorts > 0} onClick={() => toggle("sort")} />
           <ToolbarButton icon={Layers3} label="Group" count={view.groupByFieldId ? 1 : undefined} active={panel === "group"} emphasized={Boolean(view.groupByFieldId)} onClick={() => toggle("group")} />
+          <ToolbarButton icon={Columns3} label="Fields" count={hidden || undefined} active={panel === "fields"} onClick={() => toggle("fields")} />
           <ToolbarButton icon={Palette} label="Formatting" count={view.conditionalFormatting.length || undefined} active={panel === "format"} emphasized={view.conditionalFormatting.length > 0} onClick={() => toggle("format")} />
           <span className="toolbar-divider" />
           <ToolbarButton icon={Rows3} label="Row height" active={panel === "density"} onClick={() => toggle("density")} />
+          <ToolbarButton icon={Download} label="Export" active={panel === "export"} onClick={() => toggle("export")} />
         </div>
         <div className="table-search">
           <Search size={14} />
@@ -120,7 +130,7 @@ export function ViewToolbar({
         <div className="config-panel">
           <div className="panel-heading">
             <div>
-              <strong>{panel === "fields" ? "Visible fields" : panel === "format" ? "Conditional formatting" : panel === "density" ? "Row height" : `${panel[0].toUpperCase()}${panel.slice(1)} records`}</strong>
+              <strong>{panel === "fields" ? "Visible fields" : panel === "format" ? "Conditional formatting" : panel === "density" ? "Row height" : panel === "export" ? "Export records" : `${panel[0].toUpperCase()}${panel.slice(1)} records`}</strong>
               <small>Saved to this view only</small>
             </div>
             <Button variant="ghost" size="icon" onClick={() => setPanel(null)} aria-label="Close configuration"><X size={16} /></Button>
@@ -178,6 +188,13 @@ export function ViewToolbar({
               ))}
             </div>
           )}
+
+          {panel === "export" && (
+            <div className="export-panel">
+              <div><FileSpreadsheet size={20} /><span><strong>Current filtered view</strong><small>{resultCount} records · visible fields only</small></span><Button variant="secondary" size="sm" onClick={() => onExport("csv", "current")}>CSV</Button><Button variant="secondary" size="sm" onClick={() => onExport("xlsx", "current")}>XLSX</Button></div>
+              <div className={selectionCount ? "" : "disabled-row"}><Download size={20} /><span><strong>Selected records</strong><small>{selectionCount ? `${selectionCount} selected · visible fields only` : "Select rows in Grid to enable"}</small></span><Button variant="secondary" size="sm" disabled={!selectionCount} onClick={() => onExport("csv", "selected")}>CSV</Button><Button variant="secondary" size="sm" disabled={!selectionCount} onClick={() => onExport("xlsx", "selected")}>XLSX</Button></div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -216,7 +233,7 @@ function FilterPanel({ fields, view, onUpdateView }: { fields: FieldDefinition[]
 
 function ValueInput({ field, value, onChange }: { field?: FieldDefinition; value: CellValue | undefined; onChange: (value: CellValue) => void }) {
   if (field?.configuration?.options?.length) {
-    return <select value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">Choose…</option>{field.configuration.options.map((option) => <option key={option.id} value={option.label}>{option.label}</option>)}</select>;
+    return <select value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">Choose…</option>{field.configuration.options.map((option) => <option key={option.id} value={field.configuration?.optionValue === "id" ? option.id : option.label}>{option.label}</option>)}</select>;
   }
   return <input type={["number", "integer", "currency", "percentage", "progress"].includes(field?.type ?? "") ? "number" : field?.type === "date" ? "date" : "text"} value={String(value ?? "")} onChange={(event) => onChange(event.target.type === "number" ? Number(event.target.value) : event.target.value)} placeholder="Enter a value" />;
 }

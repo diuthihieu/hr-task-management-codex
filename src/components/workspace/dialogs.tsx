@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Columns3, Database, Eye, Table2, UserRound, Users } from "lucide-react";
+import { CalendarDays, Columns3, Database, FormInput, GalleryHorizontalEnd, GanttChartSquare, Grid2X2, KanbanSquare, Table2, UserRound, Users } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import type { FieldDefinition, FieldType, SavedView, ViewKind } from "@/domain/base";
@@ -67,8 +67,12 @@ export function NewViewDialog({ open, onClose, onCreate }: { open: boolean; onCl
   const [personal, setPersonal] = useState(false);
   const options = useMemo(() => [
     ["grid", "Grid", "Spreadsheet-like editing", Columns3],
-    ["kanban", "Kanban", "Cards grouped by a field", Columns3],
-    ["calendar", "Calendar", "Records positioned by date", Eye],
+    ["kanban", "Kanban", "Cards grouped by a field", KanbanSquare],
+    ["calendar", "Calendar", "Records positioned by date", CalendarDays],
+    ["gantt", "Gantt", "Tasks across a resizable timeline", GanttChartSquare],
+    ["gallery", "Gallery", "Visual cards for record scanning", GalleryHorizontalEnd],
+    ["form", "Form", "Collect records with validation", FormInput],
+    ["eisenhower", "Eisenhower", "Urgency and importance quadrants", Grid2X2],
   ] as const, []);
   const submit = () => {
     if (!name.trim()) return;

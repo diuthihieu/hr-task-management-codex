@@ -52,6 +52,7 @@ export interface FieldConfiguration {
   relatedTableId?: string;
   formula?: string;
   description?: string;
+  optionValue?: "id" | "label";
 }
 
 export interface FieldDefinition {
@@ -133,7 +134,7 @@ export interface ConditionalFormattingRule {
   enabled: boolean;
 }
 
-export type ViewKind = "grid" | "kanban" | "calendar" | "gantt" | "gallery" | "form";
+export type ViewKind = "grid" | "kanban" | "calendar" | "gantt" | "gallery" | "form" | "eisenhower";
 
 export interface SavedView {
   id: string;
@@ -174,12 +175,68 @@ export interface WorkspaceDefinition {
   bases: BaseDefinition[];
 }
 
+export type OkrStatus = "On Track" | "At Risk" | "Off Track" | "Completed";
+export type KeyResultType = "task" | "numeric" | "percentage" | "manual";
+
+export interface TeamDefinition {
+  id: string;
+  name: string;
+  color: SelectOption["color"];
+}
+
+export interface OkrCycle {
+  id: string;
+  name: string;
+  type: "quarter" | "year" | "custom";
+  startDate: string;
+  endDate: string;
+}
+
+export interface ObjectiveDefinition {
+  id: string;
+  title: string;
+  description: string;
+  teamId: string;
+  owner: string;
+  contributors: string[];
+  cycleId: string;
+  startDate: string;
+  endDate: string;
+  status: OkrStatus;
+  confidence: number;
+  priority: "Low" | "Medium" | "High" | "Critical";
+}
+
+export interface KeyResultDefinition {
+  id: string;
+  objectiveId: string;
+  title: string;
+  owner: string;
+  type: KeyResultType;
+  targetValue: number;
+  currentValue: number;
+  startValue: number;
+  unit: string;
+  weight: number;
+  manualProgress?: number;
+  status: OkrStatus;
+}
+
+export interface OkrStore {
+  teams: TeamDefinition[];
+  cycles: OkrCycle[];
+  objectives: ObjectiveDefinition[];
+  keyResults: KeyResultDefinition[];
+  urgencyDueDays: number | null;
+}
+
 export interface AppState {
   workspaces: WorkspaceDefinition[];
   activeWorkspaceId: string;
   activeBaseId: string;
   activeTableId: string;
   activeViewId: string;
+  okrs: OkrStore;
 }
 
 export const fieldTypeLabels: Record<FieldType, string> = {
