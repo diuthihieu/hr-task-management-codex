@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Check, Cloud, Database, LoaderCircle, RotateCcw } from "lucide-react";
-import type { AppState, BaseRecord, CellValue, DataTable, FieldDefinition, FieldType, SavedView } from "@/domain/base";
+import type { AppState, BaseRecord, CellValue, DataTable, FieldDefinition, FieldType, FilterGroup, SavedView } from "@/domain/base";
 import { createEmptyView, createId } from "@/domain/base";
 import { initialAppState } from "@/data/hr-demo";
 import { queryRecords } from "@/lib/query-engine";
@@ -12,15 +12,16 @@ import { ViewTabs, ViewToolbar } from "./view-toolbar";
 import { DataGrid, type FieldAction } from "./data-grid";
 import { FieldDialog, CreateEntityDialog, NewViewDialog } from "./dialogs";
 import { RecordDrawer } from "./record-drawer";
-import { DashboardView } from "./dashboard-view";
+import { DashboardBuilder } from "./dashboard-builder";
 import { AlternateView } from "./alternate-view";
 import { downloadRecords, type ExportFormat, type ExportScope } from "@/lib/export";
 import { LEGACY_STORAGE_KEYS, normalizeAppState, STORAGE_KEY } from "@/lib/state";
-import { MyWorkView, OkrWorkspace } from "./okr-view";
+import { OkrWorkspace } from "./okr-view";
+import { MyWorkHub } from "./my-work-hub";
 
 type FieldDialogState = { open: boolean; field?: FieldDefinition; insertAt?: number };
 type EntityKind = "workspace" | "base" | "table";
-type ActiveArea = "table" | "dashboard" | "okrs" | "myWork" | "workflow" | "templates";
+type ActiveArea = "table" | "dashboard" | "okrs" | "myWork";
 type WorkspaceUser = { name: string; email?: string; image?: string };
 
 export function WorkspaceApp({ user }: { user: WorkspaceUser }) {
@@ -70,6 +71,22 @@ export function WorkspaceApp({ user }: { user: WorkspaceUser }) {
     const timeout = window.setTimeout(() => setToast(undefined), 2600);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.key.toLowerCase() !== "q" || event.metaKey || event.ctrlKey || event.altKey || target?.matches("input, textarea, select, [contenteditable=true]")) return;
+      event.preventDefault();
+      setState((current) => {
+        const currentWorkspace = current.workspaces.find((item) => item.id === current.activeWorkspaceId);
+        const currentBase = currentWorkspace?.bases.find((item) => item.id === current.activeBaseId);
+        const tasks = currentBase?.tables.find((item) => item.id === "table-tasks");
+        return tasks ? { ...current, activeTableId: tasks.id, activeViewId: tasks.views[0].id } : current;
+      });
+      setActiveArea("myWork");
+    };
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
 
   const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId) ?? state.workspaces[0];
   const base = workspace?.bases.find((item) => item.id === state.activeBaseId) ?? workspace?.bases[0];
@@ -111,6 +128,56 @@ export function WorkspaceApp({ user }: { user: WorkspaceUser }) {
       }),
     }),
   }));
+  const captureThought = (thought: Omit<AppState["capturedThoughts"][number], "id" | "createdAt" | "status" | "userId">) => {
+    setState((current) => ({ ...current, capturedThoughts: [...current.capturedThoughts, { ...thought, id: createId("thought"), userId: currentUser, status: "CAPTURED", createdAt: new Date().toISOString() }] }));
+    setToast("Thought captured — keep going");
+  };
+  const markThoughtClarifying = (id: string) => setState((current) => ({ ...current, capturedThoughts: current.capturedThoughts.map((thought) => thought.id === id ? { ...thought, status: "CLARIFYING" } : thought) }));
+  const convertThought = (thoughtId: string, values: Record<string, CellValue>) => {
+    const recordId = createId("task");
+    const now = new Date().toISOString();
+    setState((current) => ({
+      ...current,
+      capturedThoughts: current.capturedThoughts.map((thought) => thought.id === thoughtId ? { ...thought, status: "CONVERTED", convertedTaskId: recordId, convertedAt: now } : thought),
+      workspaces: current.workspaces.map((workspaceItem) => workspaceItem.id !== current.activeWorkspaceId ? workspaceItem : {
+        ...workspaceItem,
+        bases: workspaceItem.bases.map((baseItem) => baseItem.id !== current.activeBaseId ? baseItem : {
+          ...baseItem,
+          tables: baseItem.tables.map((tableItem) => tableItem.id !== "table-tasks" ? tableItem : {
+            ...tableItem,
+            records: [...tableItem.records, {
+              id: recordId,
+              values: { ...Object.fromEntries(tableItem.fields.map((field, index) => [field.id, field.defaultValue ?? defaultForField(field, index)])), ...values, taskId: `TASK-${String(tableItem.records.length + 1).padStart(4, "0")}`, createdBy: currentUser, createdTime: now, modifiedTime: now },
+              createdAt: now, updatedAt: now, createdBy: currentUser, comments: 0, attachments: 0,
+            }],
+          }),
+        }),
+      }),
+    }));
+    setToast("Thought converted to Task Base");
+  };
+  const updateCategories = (taskCategories: AppState["taskCategories"]) => setState((current) => {
+    const renames = new Map(current.taskCategories.flatMap((previous) => {
+      const next = taskCategories.find((category) => category.id === previous.id);
+      return next && next.name !== previous.name ? [[previous.name, next.name] as const] : [];
+    }));
+    return {
+      ...current,
+      taskCategories,
+      workspaces: current.workspaces.map((workspaceItem) => workspaceItem.id !== current.activeWorkspaceId ? workspaceItem : {
+        ...workspaceItem,
+        bases: workspaceItem.bases.map((baseItem) => baseItem.id !== current.activeBaseId ? baseItem : {
+          ...baseItem,
+          tables: baseItem.tables.map((tableItem) => tableItem.id !== "table-tasks" ? tableItem : {
+            ...tableItem,
+            fields: tableItem.fields.map((field) => field.id !== "category" ? field : { ...field, configuration: { ...field.configuration, options: taskCategories.filter((category) => !category.archived).map((category, index) => ({ id: category.id, label: category.name, color: (["slate", "blue", "cyan", "green", "amber", "violet"] as const)[index % 6] })) } }),
+            records: tableItem.records.map((record) => ({ ...record, values: { ...record.values, category: renames.get(String(record.values.category ?? "")) ?? record.values.category } })),
+            views: tableItem.views.map((savedView) => ({ ...savedView, filters: rewriteCategoryFilters(savedView.filters, renames) })),
+          }),
+        }),
+      }),
+    };
+  });
   const openSharedArea = (area: "dashboard" | "okrs" | "myWork") => {
     const tasks = base.tables.find((item) => item.id === "table-tasks");
     if (tasks) setState((current) => ({ ...current, activeTableId: tasks.id, activeViewId: tasks.views[0].id }));
@@ -118,13 +185,6 @@ export function WorkspaceApp({ user }: { user: WorkspaceUser }) {
   };
 
   const openEntityDialog = (kind: EntityKind) => setEntityDialog({ open: true, kind });
-  const switchTable = (tableId: string) => {
-    const next = base.tables.find((item) => item.id === tableId);
-    if (!next) return;
-    setState((current) => ({ ...current, activeTableId: tableId, activeViewId: next.views[0].id }));
-    setActiveArea("table"); setSelection(new Set()); setSearch(""); setMobileNavOpen(false);
-  };
-
   const switchWorkspace = (workspaceId: string) => {
     const nextWorkspace = state.workspaces.find((item) => item.id === workspaceId);
     const nextBase = nextWorkspace?.bases[0];
@@ -137,11 +197,34 @@ export function WorkspaceApp({ user }: { user: WorkspaceUser }) {
 
   const switchBase = (baseId: string) => {
     const nextBase = workspace.bases.find((item) => item.id === baseId);
-    const nextTable = nextBase?.tables[0];
+    const nextTable = nextBase?.tables.find((item) => item.id === "table-tasks") ?? nextBase?.tables[0];
     const nextView = nextTable?.views[0];
     if (!nextBase || !nextTable || !nextView) return;
     setState((current) => ({ ...current, activeBaseId: baseId, activeTableId: nextTable.id, activeViewId: nextView.id }));
     setActiveArea("table"); setSelection(new Set()); setSearch("");
+  };
+
+  const switchView = (baseId: string, viewId: string) => {
+    const nextBase = workspace.bases.find((item) => item.id === baseId);
+    const nextTable = nextBase?.tables.find((item) => item.id === "table-tasks") ?? nextBase?.tables[0];
+    if (!nextBase || !nextTable || !nextTable.views.some((item) => item.id === viewId)) return;
+    setState((current) => ({ ...current, activeBaseId: baseId, activeTableId: nextTable.id, activeViewId: viewId }));
+    setActiveArea("table"); setSelection(new Set()); setSearch(""); setMobileNavOpen(false);
+  };
+
+  const handleViewAction = (viewId: string, action: "rename" | "duplicate" | "delete" | "up" | "down") => {
+    const target = table.views.find((item) => item.id === viewId);
+    if (!target) return;
+    if (action === "rename") { const name = window.prompt("Rename view", target.name)?.trim(); if (name) mutateTable((current) => ({ ...current, views: current.views.map((item) => item.id === viewId ? { ...item, name } : item) })); return; }
+    if (action === "duplicate") { const copy = { ...structuredClone(target), id: createId("view"), name: `${target.name} copy` }; mutateTable((current) => ({ ...current, views: [...current.views, copy] })); setState((current) => ({ ...current, activeViewId: copy.id })); return; }
+    if (action === "delete") { if (table.views.length === 1 || !window.confirm(`Delete view “${target.name}”? Task records will not be deleted.`)) return; const remaining = table.views.filter((item) => item.id !== viewId); mutateTable((current) => ({ ...current, views: current.views.filter((item) => item.id !== viewId) })); if (state.activeViewId === viewId) setState((current) => ({ ...current, activeViewId: remaining[0].id })); return; }
+    const index = table.views.findIndex((item) => item.id === viewId); const nextIndex = index + (action === "up" ? -1 : 1); if (nextIndex < 0 || nextIndex >= table.views.length) return; mutateTable((current) => { const views = [...current.views]; [views[index], views[nextIndex]] = [views[nextIndex], views[index]]; return { ...current, views }; });
+  };
+
+  const handleBaseAction = (baseId: string, action: "rename" | "archive") => {
+    const target = workspace.bases.find((item) => item.id === baseId); if (!target) return;
+    if (action === "rename") { const name = window.prompt("Rename base", target.name)?.trim(); if (name) setState((current) => ({ ...current, workspaces: current.workspaces.map((item) => item.id !== current.activeWorkspaceId ? item : { ...item, bases: item.bases.map((baseItem) => baseItem.id === baseId ? { ...baseItem, name } : baseItem) }) })); return; }
+    const available = workspace.bases.filter((item) => !item.archivedAt && item.id !== baseId); if (!available.length) { setToast("Create another Base before archiving this one"); return; } if (!window.confirm(`Archive Base “${target.name}”? Its data will be preserved.`)) return; const fallback = available[0]; const fallbackTable = fallback.tables.find((item) => item.id === "table-tasks") ?? fallback.tables[0]; setState((current) => ({ ...current, workspaces: current.workspaces.map((item) => item.id !== current.activeWorkspaceId ? item : { ...item, bases: item.bases.map((baseItem) => baseItem.id === baseId ? { ...baseItem, archivedAt: new Date().toISOString() } : baseItem) }), ...(baseId === current.activeBaseId && fallbackTable ? { activeBaseId: fallback.id, activeTableId: fallbackTable.id, activeViewId: fallbackTable.views[0].id } : {}) }));
   };
 
   const createEntity = (name: string) => {
@@ -243,10 +326,10 @@ export function WorkspaceApp({ user }: { user: WorkspaceUser }) {
   };
 
   return <div className="app-shell">
-    <Sidebar workspaces={state.workspaces} workspace={workspace} base={base} activeWorkspaceId={workspace.id} activeBaseId={base.id} activeTableId={table.id} activeArea={activeArea} mobileOpen={mobileNavOpen} currentUser={currentUser} currentUserEmail={user.email} currentUserImage={user.image} onMobileClose={() => setMobileNavOpen(false)} onSelectWorkspace={switchWorkspace} onSelectBase={switchBase} onSelectTable={switchTable} onSelectDashboard={() => openSharedArea("dashboard")} onSelectOkrs={() => openSharedArea("okrs")} onSelectMyWork={() => openSharedArea("myWork")} onCreate={openEntityDialog} />
+    <Sidebar workspaces={state.workspaces} workspace={workspace} base={base} activeWorkspaceId={workspace.id} activeBaseId={base.id} activeTableId={table.id} activeViewId={view.id} activeArea={activeArea} mobileOpen={mobileNavOpen} currentUser={currentUser} currentUserEmail={user.email} currentUserImage={user.image} onMobileClose={() => setMobileNavOpen(false)} onSelectWorkspace={switchWorkspace} onSelectBase={switchBase} onSelectView={switchView} onSelectDashboard={() => openSharedArea("dashboard")} onSelectOkrs={() => openSharedArea("okrs")} onSelectMyWork={() => openSharedArea("myWork")} onCreate={openEntityDialog} onCreateView={() => setViewDialogOpen(true)} onViewAction={handleViewAction} onBaseAction={handleBaseAction} />
     <main className="workspace-main">
-      <Topbar workspaceName={workspace.name} baseName={base.name} tableName={activeArea === "dashboard" ? "Dashboard" : activeArea === "okrs" ? "OKRs" : activeArea === "myWork" ? "My Work" : table.name} search={search} onSearchChange={setSearch} onMenuOpen={() => setMobileNavOpen(true)} onToast={setToast} />
-      {activeArea === "dashboard" ? <DashboardView table={taskTable} onOpenRecord={setDrawerRecordId} /> : activeArea === "okrs" ? <OkrWorkspace store={state.okrs} tasks={taskTable.records} currentUser={currentUser} onChangeStore={(okrs) => setState((current) => ({ ...current, okrs }))} onUpdateTask={updateTask} onOpenTask={setDrawerRecordId} /> : activeArea === "myWork" ? <MyWorkView store={state.okrs} tasks={taskTable.records} currentUser={currentUser} onChangeStore={(okrs) => setState((current) => ({ ...current, okrs }))} onUpdateTask={updateTask} onOpenTask={setDrawerRecordId} /> : <>
+      <Topbar workspaceName={workspace.name} baseName={base.name} tableName={activeArea === "dashboard" ? "Dashboard" : activeArea === "okrs" ? "Goals & OKRs" : activeArea === "myWork" ? "My Work" : table.name} search={search} onSearchChange={setSearch} onMenuOpen={() => setMobileNavOpen(true)} onToast={setToast} onQuickAdd={(kind) => { if (kind === "thought") openSharedArea("myWork"); else if (kind === "goal") openSharedArea("okrs"); else { setActiveArea("table"); addRecord(); } }} />
+      {activeArea === "dashboard" ? <DashboardBuilder table={taskTable} currentUser={currentUser} dashboards={state.dashboards} activeDashboardId={state.activeDashboardId} activePageId={state.activeDashboardPageId} onChange={(dashboards) => setState((current) => ({ ...current, dashboards }))} onSelect={(activeDashboardId, activeDashboardPageId) => setState((current) => ({ ...current, activeDashboardId, activeDashboardPageId }))} /> : activeArea === "okrs" ? <OkrWorkspace store={state.okrs} tasks={taskTable.records} currentUser={currentUser} onChangeStore={(okrs) => setState((current) => ({ ...current, okrs }))} onUpdateTask={updateTask} onOpenTask={setDrawerRecordId} /> : activeArea === "myWork" ? <MyWorkHub currentUser={currentUser} tasks={taskTable.records} thoughts={state.capturedThoughts} categories={state.taskCategories} objectives={state.okrs.objectives} onCapture={captureThought} onClarifying={markThoughtClarifying} onConvert={convertThought} onOpenTask={setDrawerRecordId} onCategoriesChange={updateCategories} /> : <>
         <div className="table-titlebar"><div className="table-title-icon"><Database size={16} /></div><div><h1>{table.name}</h1><span>{table.description ?? `${table.records.length} records · ${table.fields.length} fields`}</span></div><div className="titlebar-spacer" /><span className={`sync-status save-${saveStatus}`}>{saveStatus === "saving" ? <LoaderCircle size={14} /> : saveStatus === "error" ? <AlertCircle size={14} /> : <Cloud size={14} />}{saveStatus === "saving" ? "Saving…" : saveStatus === "error" ? "Save failed" : "Saved locally"}</span><button className="reset-demo" onClick={resetDemo}><RotateCcw size={13} /> Reset demo</button></div>
         <ViewTabs views={table.views} activeViewId={view.id} onSelect={(viewId) => { setState((current) => ({ ...current, activeViewId: viewId })); setSelection(new Set()); }} onAdd={() => setViewDialogOpen(true)} />
         <ViewToolbar fields={displayFields} view={view} search={search} resultCount={visibleRecords.length} selectionCount={selection.size} onSearchChange={setSearch} onUpdateView={updateView} onExport={exportRecords} />
@@ -272,10 +355,12 @@ function enrichOkrFields(fields: FieldDefinition[], state: AppState) {
 }
 
 function createBlankTable(name: string): DataTable {
-  const fieldId = createId("field");
-  const view = createEmptyView("Grid");
-  view.columnOrder = [fieldId];
-  return { id: createId("table"), name, icon: "table", fields: [{ id: fieldId, name: "Name", type: "shortText", order: 0, width: 260, visible: true, frozen: true, required: true }], records: [], views: [view] };
+  const template = initialAppState.workspaces[0].bases[0].tables.find((item) => item.id === "table-tasks");
+  if (!template) {
+    const fieldId = createId("field"); const view = createEmptyView("All Tasks"); view.columnOrder = [fieldId];
+    return { id: "table-tasks", name, icon: "check", fields: [{ id: fieldId, name: "Task Name", type: "shortText", order: 0, width: 260, visible: true, frozen: true, required: true }], records: [], views: [view] };
+  }
+  return { ...structuredClone(template), name: "All Tasks", records: [] };
 }
 
 function insertId(order: string[], id: string, at: number) { const next = [...order]; next.splice(at, 0, id); return next; }
@@ -296,6 +381,20 @@ function migrateValue(value: CellValue | undefined, target: FieldType): CellValu
   if (target === "checkbox") return Boolean(value);
   if (["multiSelect", "multiplePeople", "attachment"].includes(target)) return Array.isArray(value) ? value.map(String) : [String(value)];
   return Array.isArray(value) ? value.join(", ") : String(value);
+}
+
+function rewriteCategoryFilters(group: FilterGroup, renames: Map<string, string>): FilterGroup {
+  return {
+    ...group,
+    conditions: group.conditions.map((condition) => {
+      if ("conditions" in condition) return rewriteCategoryFilters(condition, renames);
+      if (condition.fieldId !== "category") return condition;
+      const rewrite = (value: CellValue | undefined): CellValue | undefined => Array.isArray(value)
+        ? value.map((entry) => renames.get(String(entry)) ?? String(entry))
+        : typeof value === "string" ? renames.get(value) ?? value : value;
+      return { ...condition, value: rewrite(condition.value), secondValue: rewrite(condition.secondValue) };
+    }),
+  };
 }
 
 function WorkspaceSkeleton() {

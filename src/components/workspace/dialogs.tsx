@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays, Columns3, Database, FormInput, GalleryHorizontalEnd, GanttChartSquare, Grid2X2, KanbanSquare, Table2, UserRound, Users } from "lucide-react";
+import { CalendarDays, Columns3, Database, FormInput, GalleryHorizontalEnd, GanttChartSquare, Grid2X2, KanbanSquare, Rows3, Table2, UserRound, Users } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import type { FieldDefinition, FieldType, SavedView, ViewKind } from "@/domain/base";
@@ -70,6 +70,10 @@ export function NewViewDialog({ open, onClose, onCreate }: { open: boolean; onCl
     ["kanban", "Kanban", "Cards grouped by a field", KanbanSquare],
     ["calendar", "Calendar", "Records positioned by date", CalendarDays],
     ["gantt", "Gantt", "Tasks across a resizable timeline", GanttChartSquare],
+    ["timeline", "Timeline", "Chronological task milestones", CalendarDays],
+    ["list", "List", "Compact execution list", Rows3],
+    ["timeline", "Timeline", "Chronological task milestones", GanttChartSquare],
+    ["list", "List", "Compact execution list", Table2],
     ["gallery", "Gallery", "Visual cards for record scanning", GalleryHorizontalEnd],
     ["form", "Form", "Collect records with validation", FormInput],
     ["eisenhower", "Eisenhower", "Urgency and importance quadrants", Grid2X2],

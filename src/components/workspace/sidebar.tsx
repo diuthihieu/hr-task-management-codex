@@ -1,146 +1,36 @@
 "use client";
 
-import {
-  BellRing,
-  BookOpen,
-  Boxes,
-  CheckSquare2,
-  ChevronDown,
-  Database,
-  FileClock,
-  History,
-  LayoutDashboard,
-  LogOut,
-  Plus,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  Target,
-  Table2,
-  Users,
-  Workflow,
-  X,
-} from "lucide-react";
+import { Boxes, ChevronDown, ChevronRight, Database, FileClock, LayoutDashboard, LogOut, MoreHorizontal, Plus, Settings, Table2, Target, X } from "lucide-react";
 import { useState } from "react";
 import { signOut } from "next-auth/react";
 import type { BaseDefinition, WorkspaceDefinition } from "@/domain/base";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const tableIcons = {
-  check: CheckSquare2,
-  users: Users,
-  shield: ShieldCheck,
-  book: BookOpen,
-  history: History,
-};
+type ViewAction = "rename" | "duplicate" | "delete" | "up" | "down";
 
-export function Sidebar({
-  workspaces,
-  workspace,
-  base,
-  activeWorkspaceId,
-  activeBaseId,
-  activeTableId,
-  activeArea,
-  mobileOpen,
-  onMobileClose,
-  onSelectTable,
-  onSelectWorkspace,
-  onSelectBase,
-  onSelectDashboard,
-  onSelectOkrs,
-  onSelectMyWork,
-  currentUser,
-  currentUserEmail,
-  currentUserImage,
-  onCreate,
-}: {
-  workspaces: WorkspaceDefinition[];
-  workspace: WorkspaceDefinition;
-  base: BaseDefinition;
-  activeWorkspaceId: string;
-  activeBaseId: string;
-  activeTableId: string;
-  activeArea: "table" | "dashboard" | "okrs" | "myWork" | "workflow" | "templates";
-  mobileOpen: boolean;
-  onMobileClose: () => void;
-  onSelectTable: (id: string) => void;
-  onSelectWorkspace: (id: string) => void;
-  onSelectBase: (id: string) => void;
-  onSelectDashboard: () => void;
-  onSelectOkrs: () => void;
-  onSelectMyWork: () => void;
-  currentUser: string;
-  currentUserEmail?: string;
-  currentUserImage?: string;
-  onCreate: (kind: "workspace" | "base" | "table") => void;
+export function Sidebar({ workspaces, workspace, activeWorkspaceId, activeBaseId, activeViewId, activeArea, mobileOpen, onMobileClose, onSelectWorkspace, onSelectBase, onSelectView, onSelectDashboard, onSelectOkrs, onSelectMyWork, currentUser, currentUserEmail, currentUserImage, onCreate, onCreateView, onViewAction, onBaseAction }: {
+  workspaces: WorkspaceDefinition[]; workspace: WorkspaceDefinition; base: BaseDefinition; activeWorkspaceId: string; activeBaseId: string; activeTableId: string; activeViewId: string;
+  activeArea: "table" | "dashboard" | "okrs" | "myWork"; mobileOpen: boolean; onMobileClose: () => void;
+  onSelectWorkspace: (id: string) => void; onSelectBase: (id: string) => void; onSelectView: (baseId: string, viewId: string) => void;
+  onSelectDashboard: () => void; onSelectOkrs: () => void; onSelectMyWork: () => void;
+  currentUser: string; currentUserEmail?: string; currentUserImage?: string;
+  onCreate: (kind: "workspace" | "base" | "table") => void; onCreateView: () => void; onViewAction: (viewId: string, action: ViewAction) => void; onBaseAction: (baseId: string, action: "rename" | "archive") => void;
 }) {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
-  return (
-    <aside className={cn("sidebar", mobileOpen && "sidebar-mobile-open")}>
-      <div className="brand-row">
-        <div className="brand-mark"><Boxes size={17} /></div>
-        <span>Orbit Base</span>
-        <button className="mobile-close" onClick={onMobileClose} aria-label="Close navigation"><X size={18} /></button>
-      </div>
-
-      <div className="workspace-switcher-wrap">
-        <button className="workspace-switcher" onClick={() => setWorkspaceMenuOpen((open) => !open)}>
-          <span className="workspace-avatar">{workspace.name[0]?.toUpperCase()}</span>
-          <span className="workspace-copy"><strong>{workspace.name}</strong><small>Internal workspace</small></span>
-          <ChevronDown size={15} />
-        </button>
-        {workspaceMenuOpen && <div className="workspace-menu">
-          <small>WORKSPACES</small>
-          {workspaces.map((item) => <button key={item.id} className={item.id === activeWorkspaceId ? "active" : ""} onClick={() => { onSelectWorkspace(item.id); setWorkspaceMenuOpen(false); }}><span>{item.name[0]?.toUpperCase()}</span><strong>{item.name}</strong>{item.id === activeWorkspaceId && <span>✓</span>}</button>)}
-          <button onClick={() => { onCreate("workspace"); setWorkspaceMenuOpen(false); }}><Plus size={14} /><strong>Create workspace</strong></button>
-        </div>}
-      </div>
-
-      <nav className="sidebar-scroll" aria-label="Workspace navigation">
-        <div className="nav-section">
-          <button className={cn("nav-item", activeArea === "dashboard" && "active")} onClick={onSelectDashboard}>
-            <LayoutDashboard size={16} /><span>Dashboard</span>
-          </button>
-          <button className={cn("nav-item", activeArea === "myWork" && "active")} onClick={onSelectMyWork}><BellRing size={16} /><span>My work</span></button>
-          <button className={cn("nav-item", activeArea === "okrs" && "active")} onClick={onSelectOkrs}><Target size={16} /><span>OKRs</span></button>
-        </div>
-
-        <div className="section-label">
-          <span>BASES</span>
-          <Button variant="ghost" size="icon" aria-label="Create base" onClick={() => onCreate("base")}><Plus size={14} /></Button>
-        </div>
-
-        {workspace.bases.map((baseItem) => <div className="base-tree" key={baseItem.id}>
-          <button className={cn("base-heading", baseItem.id === activeBaseId && "active")} onClick={() => onSelectBase(baseItem.id)}><span className="base-dot" /> <strong>{baseItem.name}</strong>{baseItem.id === activeBaseId ? <ChevronDown size={14} /> : <ChevronDown size={14} className="collapsed-chevron" />}</button>
-          {baseItem.id === activeBaseId && <div className="table-tree">
-            {base.tables.map((table, index) => {
-              const Icon = tableIcons[table.icon as keyof typeof tableIcons] ?? Table2;
-              return <button key={table.id} className={cn("nav-item table-item", activeArea === "table" && table.id === activeTableId && "active")} onClick={() => onSelectTable(table.id)}><Icon size={15} /><span>{index + 1}. {table.name}</span><span className="item-hover-action">•••</span></button>;
-            })}
-            <button className="nav-item add-table" onClick={() => onCreate("table")}><Plus size={15} /><span>Add table</span></button>
-          </div>}
-        </div>)}
-
-        <div className="section-label spaced"><span>TOOLS</span></div>
-        <button className={cn("nav-item", activeArea === "workflow" && "active")}>
-          <Workflow size={16} /><span>Workflows</span><span className="soon-pill">Soon</span>
-        </button>
-        <button className={cn("nav-item", activeArea === "templates" && "active")}>
-          <Sparkles size={16} /><span>Templates</span><span className="nav-count">8</span>
-        </button>
-        <button className="nav-item"><FileClock size={16} /><span>Audit log</span></button>
-      </nav>
-
-      <div className="sidebar-footer">
-        <button className="nav-item"><Settings size={16} /><span>Workspace settings</span></button>
-        <div className="user-card">
-          {currentUserImage ? <span className="user-avatar user-avatar-image" style={{ backgroundImage: `url(${currentUserImage})` }} aria-label={`${currentUser} profile photo`} /> : <span className="user-avatar">{currentUser.split(/\s+/).map((part) => part[0]).slice(-2).join("").toUpperCase()}</span>}
-          <span><strong>{currentUser}</strong><small>{currentUserEmail ?? "Workspace owner"}</small></span>
-          {currentUserEmail ? <button className="sign-out-button" onClick={() => signOut({ redirectTo: "/sign-in" })} aria-label="Sign out"><LogOut size={14} /></button> : <Database size={14} />}
-        </div>
-      </div>
-    </aside>
-  );
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([activeBaseId]));
+  const [viewMenuId, setViewMenuId] = useState<string>();
+  const [baseMenuId, setBaseMenuId] = useState<string>();
+  const toggleBase = (baseId: string) => setExpanded((current) => { const next = new Set(current); if (next.has(baseId)) next.delete(baseId); else next.add(baseId); return next; });
+  return <aside className={cn("sidebar", mobileOpen && "sidebar-mobile-open")}>
+    <div className="brand-row"><div className="brand-mark"><Boxes size={17} /></div><span>Orbit Base</span><button className="mobile-close" onClick={onMobileClose} aria-label="Close navigation"><X size={18} /></button></div>
+    <div className="workspace-switcher-wrap"><button className="workspace-switcher" onClick={() => setWorkspaceMenuOpen((open) => !open)}><span className="workspace-avatar">{workspace.name[0]?.toUpperCase()}</span><span className="workspace-copy"><strong>{workspace.name}</strong><small>Task operating system</small></span><ChevronDown size={15} /></button>{workspaceMenuOpen && <div className="workspace-menu"><small>WORKSPACES</small>{workspaces.map((item) => <button key={item.id} className={item.id === activeWorkspaceId ? "active" : ""} onClick={() => { onSelectWorkspace(item.id); setWorkspaceMenuOpen(false); }}><span>{item.name[0]?.toUpperCase()}</span><strong>{item.name}</strong>{item.id === activeWorkspaceId && <span>✓</span>}</button>)}<button onClick={() => { onCreate("workspace"); setWorkspaceMenuOpen(false); }}><Plus size={14} /><strong>Create workspace</strong></button></div>}</div>
+    <nav className="sidebar-scroll" aria-label="Workspace navigation">
+      <div className="nav-section"><button className={cn("nav-item", activeArea === "myWork" && "active")} onClick={onSelectMyWork}><Target size={16} /><span>My Work</span></button><button className={cn("nav-item", activeArea === "dashboard" && "active")} onClick={onSelectDashboard}><LayoutDashboard size={16} /><span>Dashboards</span></button><button className={cn("nav-item", activeArea === "okrs" && "active")} onClick={onSelectOkrs}><Target size={16} /><span>Goals & OKRs</span></button></div>
+      <div className="section-label"><span>BASES</span><Button variant="ghost" size="icon" aria-label="Create base" onClick={() => onCreate("base")}><Plus size={14} /></Button></div>
+      {workspace.bases.filter((item) => !item.archivedAt).map((baseItem) => { const taskTable = baseItem.tables.find((table) => table.id === "table-tasks") ?? baseItem.tables[0]; const open = expanded.has(baseItem.id); return <div className="base-tree" key={baseItem.id}><div className={cn("base-heading-wrap", baseItem.id === activeBaseId && "active")}><button className="base-expand" aria-label={`${open ? "Collapse" : "Expand"} ${baseItem.name}`} onClick={() => toggleBase(baseItem.id)}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button><button className="base-heading" onClick={() => { onSelectBase(baseItem.id); if (!open) toggleBase(baseItem.id); }}><span className="base-dot" /><strong>{baseItem.name}</strong></button><button className="base-menu-trigger" aria-label={`${baseItem.name} menu`} onClick={() => setBaseMenuId((id) => id === baseItem.id ? undefined : baseItem.id)}><MoreHorizontal size={14} /></button>{baseMenuId === baseItem.id && <div className="tree-context-menu"><button onClick={() => { onBaseAction(baseItem.id, "rename"); setBaseMenuId(undefined); }}>Rename base</button><button className="danger" onClick={() => { onBaseAction(baseItem.id, "archive"); setBaseMenuId(undefined); }}>Archive base</button></div>}</div>{open && taskTable && <div className="view-tree">{taskTable.views.map((view, index) => <div className="view-tree-row" key={view.id}><button className={cn("nav-item view-tree-item", activeArea === "table" && baseItem.id === activeBaseId && view.id === activeViewId && "active")} onClick={() => onSelectView(baseItem.id, view.id)}><Table2 size={14} /><span>{view.name}</span>{view.personal && <i title="Personal view" />}</button><button className="view-menu-trigger" aria-label={`${view.name} menu`} onClick={() => setViewMenuId((id) => id === view.id ? undefined : view.id)}><MoreHorizontal size={13} /></button>{viewMenuId === view.id && <div className="tree-context-menu view-menu"><button onClick={() => onViewAction(view.id, "rename")}>Rename</button><button onClick={() => onViewAction(view.id, "duplicate")}>Duplicate</button><button disabled={index === 0} onClick={() => onViewAction(view.id, "up")}>Move up</button><button disabled={index === taskTable.views.length - 1} onClick={() => onViewAction(view.id, "down")}>Move down</button><button className="danger" disabled={taskTable.views.length === 1} onClick={() => onViewAction(view.id, "delete")}>Delete</button></div>}</div>)}{baseItem.id === activeBaseId && <button className="nav-item add-view-tree" onClick={onCreateView}><Plus size={14} /><span>Create filtered view</span></button>}</div>}</div>; })}
+      <div className="section-label spaced"><span>GOVERNANCE</span></div><button className="nav-item"><FileClock size={16} /><span>Audit log</span></button>
+    </nav>
+    <div className="sidebar-footer"><button className="nav-item"><Settings size={16} /><span>Workspace settings</span></button><div className="user-card">{currentUserImage ? <span className="user-avatar user-avatar-image" style={{ backgroundImage: `url(${currentUserImage})` }} aria-label={`${currentUser} profile photo`} /> : <span className="user-avatar">{currentUser.split(/\s+/).map((part) => part[0]).slice(-2).join("").toUpperCase()}</span>}<span><strong>{currentUser}</strong><small>{currentUserEmail ?? "Workspace owner"}</small></span>{currentUserEmail ? <button className="sign-out-button" onClick={() => signOut({ redirectTo: "/sign-in" })} aria-label="Sign out"><LogOut size={14} /></button> : <Database size={14} />}</div></div>
+  </aside>;
 }

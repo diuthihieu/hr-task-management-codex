@@ -134,7 +134,7 @@ export interface ConditionalFormattingRule {
   enabled: boolean;
 }
 
-export type ViewKind = "grid" | "kanban" | "calendar" | "gantt" | "gallery" | "form" | "eisenhower";
+export type ViewKind = "grid" | "kanban" | "calendar" | "gantt" | "timeline" | "list" | "gallery" | "form" | "eisenhower";
 
 export interface SavedView {
   id: string;
@@ -147,7 +147,8 @@ export interface SavedView {
   hiddenFieldIds: string[];
   columnOrder: string[];
   frozenFieldCount: number;
-  rowHeight: "compact" | "comfortable" | "tall";
+  rowHeight: "compact" | "default" | "comfortable" | "auto";
+  maxAutoHeight?: number;
   conditionalFormatting: ConditionalFormattingRule[];
 }
 
@@ -166,6 +167,63 @@ export interface BaseDefinition {
   name: string;
   color: string;
   tables: DataTable[];
+  archivedAt?: string;
+}
+
+export type RoughTiming = "Now" | "Today" | "Tomorrow" | "This Week" | "Next Week" | "Later" | "Someday";
+export type CaptureStatus = "CAPTURED" | "CLARIFYING" | "CONVERTED" | "ARCHIVED";
+
+export interface TaskCategory {
+  id: string;
+  name: string;
+  color: string;
+  order: number;
+  archived?: boolean;
+}
+
+export interface CapturedThought {
+  id: string;
+  userId: string;
+  taskName: string;
+  categoryId: string;
+  estimatedDurationMinutes: number;
+  roughTiming: RoughTiming;
+  plannedStart?: string;
+  status: CaptureStatus;
+  createdAt: string;
+  convertedTaskId?: string;
+  convertedAt?: string;
+}
+
+export type DashboardVisualKind = "kpi" | "bar" | "donut" | "taskList" | "goalProgress" | "text";
+
+export interface DashboardVisual {
+  id: string;
+  kind: DashboardVisualKind;
+  title: string;
+  fieldId?: string;
+  aggregation?: "count" | "sum" | "average";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface DashboardPage {
+  id: string;
+  name: string;
+  order: number;
+  visuals: DashboardVisual[];
+}
+
+export interface DashboardDefinition {
+  id: string;
+  name: string;
+  owner: string;
+  scope: "personal" | "shared" | "workspace";
+  baseId: string;
+  defaultPageId: string;
+  pages: DashboardPage[];
 }
 
 export interface WorkspaceDefinition {
@@ -237,6 +295,11 @@ export interface AppState {
   activeTableId: string;
   activeViewId: string;
   okrs: OkrStore;
+  taskCategories: TaskCategory[];
+  capturedThoughts: CapturedThought[];
+  dashboards: DashboardDefinition[];
+  activeDashboardId: string;
+  activeDashboardPageId: string;
 }
 
 export const fieldTypeLabels: Record<FieldType, string> = {
@@ -292,6 +355,7 @@ export function createEmptyView(name: string): SavedView {
     columnOrder: [],
     frozenFieldCount: 1,
     rowHeight: "compact",
+    maxAutoHeight: 144,
     conditionalFormatting: [],
   };
 }

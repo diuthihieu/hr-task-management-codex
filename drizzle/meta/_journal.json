@@ -8,6 +8,13 @@
       "when": 1789200592480,
       "tag": "0000_even_madripoor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789324640823,
+      "tag": "0001_gifted_silhouette",
+      "breakpoints": true
     }
   ]
 }

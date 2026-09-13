@@ -6,6 +6,7 @@ import type {
   OkrStore,
   SavedView,
   SelectOption,
+  TaskCategory,
 } from "@/domain/base";
 
 const statusOptions: SelectOption[] = [
@@ -25,7 +26,11 @@ const priorityOptions: SelectOption[] = [
 ];
 
 const categoryOptions: SelectOption[] = [
-  "Employee Records",
+  "HR Operations",
+  "TA",
+  "C&B",
+  "L&D",
+  "Employee Relations",
   "Payroll",
   "Social Insurance",
   "Training",
@@ -40,6 +45,13 @@ const categoryOptions: SelectOption[] = [
   id: `category-${index + 1}`,
   label,
   color: (["violet", "cyan", "blue", "green", "amber", "pink"] as const)[index % 6],
+}));
+
+const taskCategories: TaskCategory[] = categoryOptions.map((option, order) => ({
+  id: option.id,
+  name: option.label,
+  color: ({ slate: "#64748b", blue: "#5b6ff2", cyan: "#3b94a3", green: "#2f8f72", amber: "#b87922", orange: "#c46632", red: "#c45151", violet: "#7461a8", pink: "#a95779" })[option.color],
+  order,
 }));
 
 const taskFields: FieldDefinition[] = [
@@ -75,6 +87,15 @@ const taskFields: FieldDefinition[] = [
   { id: "createdBy", name: "Created By", type: "createdBy", order: 20, width: 140, visible: false, frozen: false },
   { id: "createdTime", name: "Created Time", type: "createdTime", order: 21, width: 150, visible: false, frozen: false },
   { id: "modifiedTime", name: "Modified Time", type: "modifiedTime", order: 22, width: 150, visible: false, frozen: false },
+  { id: "taskId", name: "Task ID", type: "autoNumber", order: 23, width: 110, visible: false, frozen: false },
+  { id: "subcategory", name: "Subcategory", type: "singleSelect", order: 24, width: 150, visible: false, frozen: false },
+  { id: "collaborators", name: "Collaborators", type: "multiplePeople", order: 25, width: 180, visible: false, frozen: false },
+  { id: "plannedEnd", name: "Planned End", type: "dateTime", order: 26, width: 170, visible: false, frozen: false },
+  { id: "actualStart", name: "Actual Start", type: "dateTime", order: 27, width: 170, visible: false, frozen: false },
+  { id: "actualEnd", name: "Actual End", type: "dateTime", order: 28, width: 170, visible: false, frozen: false },
+  { id: "completedAt", name: "Completed At", type: "dateTime", order: 29, width: 170, visible: false, frozen: false },
+  { id: "tags", name: "Tags", type: "multiSelect", order: 30, width: 180, visible: false, frozen: false },
+  { id: "notes", name: "Notes", type: "longText", order: 31, width: 260, visible: false, frozen: false },
 ];
 
 type TaskSeed = [string, string, string, string, string, string, string, string, string, string, number, number, number, string];
@@ -122,11 +143,12 @@ const taskRecords: BaseRecord[] = taskSeeds.map((seed, index) => ({
 }));
 
 const emptyFilters = (id: string) => ({ id, conjunction: "and" as const, conditions: [] });
+const defaultHiddenFieldIds = ["dependencies", ...taskFields.filter((field) => !field.visible).map((field) => field.id)];
 
 const taskViews: SavedView[] = [
   {
     id: "view-all-tasks", name: "All Tasks", kind: "grid", filters: emptyFilters("fg-all"), sorting: [],
-    hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"], columnOrder: taskFields.map((field) => field.id),
+    hiddenFieldIds: defaultHiddenFieldIds, columnOrder: taskFields.map((field) => field.id),
     frozenFieldCount: 1, rowHeight: "compact", conditionalFormatting: [
       { id: "cf-blocked", name: "Blocked tasks", enabled: true, target: "row", style: { background: "var(--format-red)" }, conditions: { id: "cfg-blocked", conjunction: "and", conditions: [{ id: "c-blocked", fieldId: "status", operator: "equals", value: "Blocked" }] } },
       { id: "cf-done", name: "Completed progress", enabled: true, target: "cell", targetFieldId: "progress", style: { foreground: "var(--success)" }, conditions: { id: "cfg-done", conjunction: "and", conditions: [{ id: "c-done", fieldId: "progress", operator: "gte", value: 100 }] } },
@@ -135,7 +157,7 @@ const taskViews: SavedView[] = [
   {
     id: "view-my-tasks", name: "My Tasks", kind: "grid", personal: true,
     filters: { id: "fg-mine", conjunction: "and", conditions: [{ id: "f-mine", fieldId: "owner", operator: "equals", value: "Linh Nguyen" }] },
-    sorting: [{ id: "sort-mine", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"],
+    sorting: [{ id: "sort-mine", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: defaultHiddenFieldIds,
     columnOrder: taskFields.map((field) => field.id), frozenFieldCount: 1, rowHeight: "compact", conditionalFormatting: [],
   },
   {
@@ -144,18 +166,32 @@ const taskViews: SavedView[] = [
       { id: "f-overdue-date", fieldId: "dueDate", operator: "before", value: "2026-09-12" },
       { id: "f-overdue-status", fieldId: "status", operator: "notEquals", value: "Done" },
     ] }, sorting: [{ id: "sort-overdue", fieldId: "dueDate", direction: "asc" }],
-    hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"], columnOrder: taskFields.map((field) => field.id),
+    hiddenFieldIds: defaultHiddenFieldIds, columnOrder: taskFields.map((field) => field.id),
     frozenFieldCount: 1, rowHeight: "compact", conditionalFormatting: [],
   },
   {
     id: "view-completed", name: "Completed Tasks", kind: "grid",
     filters: { id: "fg-completed", conjunction: "and", conditions: [{ id: "f-completed", fieldId: "status", operator: "equals", value: "Done" }] },
-    sorting: [{ id: "sort-completed", fieldId: "dueDate", direction: "desc" }], hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"],
+    sorting: [{ id: "sort-completed", fieldId: "dueDate", direction: "desc" }], hiddenFieldIds: defaultHiddenFieldIds,
     columnOrder: taskFields.map((field) => field.id), frozenFieldCount: 1, rowHeight: "compact", conditionalFormatting: [],
   },
+  ...[
+    ["view-ta", "TA", "TA"],
+    ["view-cb", "C&B", "C&B"],
+    ["view-ld", "L&D", "L&D"],
+    ["view-social-insurance", "Social Insurance", "Social Insurance"],
+    ["view-employee-relations", "Employee Relations", "Employee Relations"],
+  ].map(([id, name, category]) => ({
+    id, name, kind: "grid" as const,
+    filters: { id: `${id}-filters`, conjunction: "and" as const, conditions: [{ id: `${id}-category`, fieldId: "category", operator: "equals" as const, value: category }] },
+    sorting: [], hiddenFieldIds: defaultHiddenFieldIds,
+    columnOrder: taskFields.map((field) => field.id), frozenFieldCount: 1, rowHeight: "compact" as const, maxAutoHeight: 144, conditionalFormatting: [],
+  })),
   { id: "view-kanban-status", name: "Kanban by Status", kind: "kanban", filters: emptyFilters("fg-kanban"), sorting: [], groupByFieldId: "status", hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
   { id: "view-calendar", name: "Calendar", kind: "calendar", filters: emptyFilters("fg-calendar"), sorting: [], hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
   { id: "view-gantt", name: "Gantt", kind: "gantt", filters: emptyFilters("fg-gantt"), sorting: [{ id: "sort-gantt", fieldId: "startDate", direction: "asc" }], hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
+  { id: "view-timeline", name: "Timeline", kind: "timeline", filters: emptyFilters("fg-timeline"), sorting: [{ id: "sort-timeline", fieldId: "startDate", direction: "asc" }], hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
+  { id: "view-list", name: "List", kind: "list", filters: emptyFilters("fg-list"), sorting: [{ id: "sort-list", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
   { id: "view-gallery", name: "Gallery", kind: "gallery", filters: emptyFilters("fg-gallery"), sorting: [{ id: "sort-gallery", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: [], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
   { id: "view-form", name: "Form", kind: "form", filters: emptyFilters("fg-form"), sorting: [], hiddenFieldIds: ["createdBy", "createdTime", "modifiedTime"], columnOrder: [], frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
   { id: "view-eisenhower", name: "Eisenhower", kind: "eisenhower", filters: emptyFilters("fg-eisenhower"), sorting: [{ id: "sort-eisenhower", fieldId: "dueDate", direction: "asc" }], hiddenFieldIds: ["dependencies", "createdBy", "createdTime", "modifiedTime"], columnOrder: taskFields.map((field) => field.id), frozenFieldCount: 0, rowHeight: "comfortable", conditionalFormatting: [] },
@@ -247,4 +283,31 @@ export const initialAppState: AppState = {
   activeTableId: "table-tasks",
   activeViewId: "view-all-tasks",
   okrs,
+  taskCategories,
+  capturedThoughts: [
+    { id: "thought-payroll", userId: "Hieu Nguyen", taskName: "Prepare payroll reconciliation", categoryId: taskCategories.find((category) => category.name === "C&B")?.id ?? taskCategories[0].id, estimatedDurationMinutes: 120, roughTiming: "Today", status: "CAPTURED", createdAt: "2026-09-13T08:10:00.000Z" },
+    { id: "thought-cv", userId: "Hieu Nguyen", taskName: "Review CV shortlist", categoryId: taskCategories.find((category) => category.name === "TA")?.id ?? taskCategories[0].id, estimatedDurationMinutes: 30, roughTiming: "Tomorrow", status: "CAPTURED", createdAt: "2026-09-13T08:12:00.000Z" },
+  ],
+  dashboards: [{
+    id: "dashboard-personal",
+    name: "My Dashboard",
+    owner: "Hieu Nguyen",
+    scope: "personal",
+    baseId: "base-hr-operations",
+    defaultPageId: "dashboard-page-overview",
+    pages: [
+      { id: "dashboard-page-overview", name: "Executive Overview", order: 0, visuals: [
+        { id: "visual-total", kind: "kpi", title: "Total tasks", aggregation: "count", x: 0, y: 0, w: 3, h: 2 },
+        { id: "visual-status", kind: "donut", title: "Task status", fieldId: "status", aggregation: "count", x: 3, y: 0, w: 4, h: 4 },
+        { id: "visual-category", kind: "bar", title: "Tasks by category", fieldId: "category", aggregation: "count", x: 7, y: 0, w: 5, h: 4 },
+        { id: "visual-upcoming", kind: "taskList", title: "Upcoming deadlines", x: 0, y: 4, w: 12, h: 4 },
+      ] },
+      { id: "dashboard-page-workload", name: "Workload", order: 1, visuals: [
+        { id: "visual-owner", kind: "bar", title: "Tasks by owner", fieldId: "owner", aggregation: "count", x: 0, y: 0, w: 7, h: 4 },
+        { id: "visual-progress", kind: "kpi", title: "Average progress", fieldId: "progress", aggregation: "average", x: 7, y: 0, w: 5, h: 2 },
+      ] },
+    ],
+  }],
+  activeDashboardId: "dashboard-personal",
+  activeDashboardPageId: "dashboard-page-overview",
 };

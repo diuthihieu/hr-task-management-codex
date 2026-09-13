@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 import "./features.css";
+import "./productivity.css";
 
 export const metadata: Metadata = {
-  title: "Orbit Base — HR Operations",
-  description: "A flexible internal work management platform for teams and operations.",
+  title: "Orbit Base — Task Operating System",
+  description: "A configurable work management, personal execution and analytics platform.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -1,6 +1,14 @@
-# Orbit Base
+# Orbit Base — HR Task Operating System
 
-Orbit Base is a functional work-management MVP built around a reusable dynamic-table engine. The included HR Operations workspace demonstrates dynamic fields and records, inline editing, saved views, nested filters, sorting, grouping, conditional formatting, bulk updates, record detail, a live dashboard and drag-to-update Kanban.
+Orbit Base is an HR task operating system built around one canonical Task Base. It combines fast personal capture in **My Work**, configurable saved views, goals and OKRs, and live multi-page dashboards without duplicating task data.
+
+## Product surfaces
+
+- **Task Base:** rich task schema, inline editing, nested filters, sorting, grouping, conditional formatting, List, Timeline, Kanban, Calendar, Gantt and grid views.
+- **My Work:** keyboard-first brain dump, timing/category/duration capture, thought map, clarification workflow and atomic conversion into Task Base records.
+- **Dashboards:** reusable pages, page-level filters, KPI/chart/list/text visuals and live aggregation over Task Base.
+- **Goals & OKRs:** objective/key-result planning linked to canonical tasks.
+- **Authentication:** Google and Microsoft OAuth through Auth.js, with a safe provider-setup state when credentials are not configured.
 
 ## Run locally
 

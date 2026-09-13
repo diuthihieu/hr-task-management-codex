@@ -35,10 +35,21 @@ export function AlternateView(props: Props) {
   if (props.view.kind === "kanban") return <KanbanView {...props} />;
   if (props.view.kind === "calendar") return <CalendarView {...props} />;
   if (props.view.kind === "gantt") return <GanttView {...props} />;
+  if (props.view.kind === "timeline") return <TimelineView {...props} />;
+  if (props.view.kind === "list") return <ListView {...props} />;
   if (props.view.kind === "gallery") return <GalleryView {...props} />;
   if (props.view.kind === "form") return <FormView {...props} />;
   if (props.view.kind === "eisenhower") return <EisenhowerView {...props} />;
   return null;
+}
+
+function ListView({ records, fields, onOpenRecord }: Props) {
+  return <div className="task-list-view"><header className="view-surface-header"><div><span>LIST</span><h2>Focused task list</h2><p>A compact execution view over the same Task Base.</p></div></header>{records.map((record) => <button key={record.id} onClick={() => onOpenRecord(record.id)}><span className={`status-dot status-${slug(record.values.status)}`} /><strong>{primaryValue(record, fields)}</strong><span>{display(record.values.category)}</span><span>{display(record.values.owner)}</span><time>{formatDate(record.values.dueDate)}</time></button>)}{!records.length && <ViewEmpty icon={Rows3} title="No tasks in this view" detail="Adjust the saved filters or add a task." />}</div>;
+}
+
+function TimelineView({ records, fields, onOpenRecord }: Props) {
+  const dated = records.filter((record) => toDate(record.values.startDate ?? record.values.dueDate)).sort((a, b) => String(a.values.startDate ?? a.values.dueDate).localeCompare(String(b.values.startDate ?? b.values.dueDate)));
+  return <div className="task-timeline-view"><header className="view-surface-header"><div><span>TIMELINE</span><h2>Task milestones</h2><p>Chronological delivery signals from the shared schedule fields.</p></div></header><div>{dated.map((record) => <button key={record.id} onClick={() => onOpenRecord(record.id)}><time>{formatDate(record.values.startDate ?? record.values.dueDate)}</time><i /><span><strong>{primaryValue(record, fields)}</strong><small>{display(record.values.category)} · {display(record.values.status)}</small></span><b>{display(record.values.owner)}</b></button>)}</div>{!dated.length && <ViewEmpty icon={Clock3} title="No scheduled tasks" detail="Add a planned start or due date." />}</div>;
 }
 
 function KanbanView({ view, records, fields, onUpdateCell, onOpenRecord }: Props) {

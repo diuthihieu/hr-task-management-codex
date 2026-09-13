@@ -53,7 +53,7 @@ export function DataGrid({ fields, records, view, selection, onSelectionChange, 
   const groups = groupRecords(records, view.groupByFieldId);
   const allSelected = records.length > 0 && records.every((record) => selection.has(record.id));
   const statusField = fields.find((field) => field.type === "status");
-  const rowHeight = view.rowHeight === "compact" ? 34 : view.rowHeight === "comfortable" ? 44 : 58;
+  const rowHeight = view.rowHeight === "compact" ? 34 : view.rowHeight === "default" ? 44 : 58;
   const frozenLeft = (index: number) => 76 + orderedFields.slice(0, index).reduce((total, field) => total + (headerById.get(field.id)?.getSize() ?? field.width), 0);
   const toggleAll = () => onSelectionChange(allSelected ? new Set() : new Set(records.map((record) => record.id)));
   const toggleRecord = (recordId: string) => {
@@ -83,7 +83,7 @@ export function DataGrid({ fields, records, view, selection, onSelectionChange, 
           </tr></thead>
           <tbody>
             {groups.map((group) => <GroupRows key={group.key} group={group} grouped={Boolean(view.groupByFieldId)} collapsed={collapsed.has(group.key)} colSpan={orderedFields.length + 2} onToggle={() => setCollapsed((current) => { const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next; })} renderRow={(record, rowIndex) => (
-              <tr key={record.id} className={cn(selection.has(record.id) && "selected-row")} style={{ height: rowHeight, ...rowStyle(record, view, fields) }}>
+              <tr key={record.id} className={cn(selection.has(record.id) && "selected-row", view.rowHeight === "auto" && "auto-fit-row")} style={{ height: view.rowHeight === "auto" ? autoRowHeight(record, orderedFields, headerById, view.maxAutoHeight ?? 144) : rowHeight, ...rowStyle(record, view, fields) }}>
                 <td className="row-leading sticky-leading" style={{ width: 76, minWidth: 76 }}>
                   <GripVertical size={13} className="row-grip" />
                   <label className="grid-checkbox"><input type="checkbox" checked={selection.has(record.id)} onChange={() => toggleRecord(record.id)} aria-label={`Select row ${rowIndex + 1}`} /><span>{selection.has(record.id) ? <Check size={11} /> : rowIndex + 1}</span></label>
@@ -92,7 +92,7 @@ export function DataGrid({ fields, records, view, selection, onSelectionChange, 
                 {orderedFields.map((field, columnIndex) => {
                   const frozen = columnIndex < view.frozenFieldCount;
                   const header = headerById.get(field.id);
-                  return <td key={field.id} className={cn(frozen && "frozen-column")} style={{ width: header?.getSize() ?? field.width, minWidth: header?.getSize() ?? field.width, left: frozen ? frozenLeft(columnIndex) : undefined, ...cellStyle(record, field.id, view, fields) }}><CellEditor rowIndex={rowIndex} columnIndex={columnIndex} field={field} value={record.values[field.id]} onChange={(value) => onUpdateCell(record.id, field.id, value)} /></td>;
+                  return <td key={field.id} className={cn(frozen && "frozen-column")} style={{ width: header?.getSize() ?? field.width, minWidth: header?.getSize() ?? field.width, left: frozen ? frozenLeft(columnIndex) : undefined, ...cellStyle(record, field.id, view, fields) }}><CellEditor rowIndex={rowIndex} columnIndex={columnIndex} field={field} value={record.values[field.id]} autoFit={view.rowHeight === "auto"} onChange={(value) => onUpdateCell(record.id, field.id, value)} /></td>;
                 })}
                 <td className="grid-trailing" />
               </tr>
@@ -111,7 +111,7 @@ function GroupRows({ group, grouped, collapsed, colSpan, onToggle, renderRow }: 
   return <>{grouped && <tr className="group-heading"><td colSpan={colSpan}><button onClick={onToggle}>{collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span className="group-dot" /> <strong>{group.label}</strong><span>{group.records.length} records</span></button></td></tr>}{!collapsed && group.records.map(renderRow)}</>;
 }
 
-function CellEditor({ rowIndex, columnIndex, field, value, onChange }: { rowIndex: number; columnIndex: number; field: FieldDefinition; value: CellValue | undefined; onChange: (value: CellValue) => void }) {
+function CellEditor({ rowIndex, columnIndex, field, value, autoFit, onChange }: { rowIndex: number; columnIndex: number; field: FieldDefinition; value: CellValue | undefined; autoFit: boolean; onChange: (value: CellValue) => void }) {
   const readOnly = ["autoNumber", "formula", "lookup", "rollup", "createdBy", "createdTime", "modifiedBy", "modifiedTime"].includes(field.type);
   const invalid = Boolean(field.required && (value == null || value === "" || (Array.isArray(value) && value.length === 0)));
   const navigation = (event: React.KeyboardEvent<HTMLElement>) => {
@@ -131,7 +131,7 @@ function CellEditor({ rowIndex, columnIndex, field, value, onChange }: { rowInde
     return <div className={cn("select-cell", option && `tone-${option.color}`)}><span className="select-dot" /><select {...shared} aria-label={field.name} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}><option value="">—</option>{field.configuration.options.map((item) => <option key={item.id} value={optionValue(item)}>{item.label}</option>)}</select><ChevronDown size={12} /></div>;
   }
   if (field.type === "person") return <div className="person-cell"><span className="mini-avatar">{initials(String(value ?? ""))}</span><input {...shared} aria-label={field.name} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} /></div>;
-  if (["multiSelect", "multiplePeople", "attachment", "relationship", "linkToRecord"].includes(field.type)) return <input {...shared} className="cell-input" aria-label={field.name} value={Array.isArray(value) ? value.join(", ") : String(value ?? "")} onChange={(event) => onChange(event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} title={displayArray(value)} />;
+  if (["multiSelect", "multiplePeople", "attachment", "relationship", "linkToRecord"].includes(field.type)) return autoFit ? <textarea {...shared} rows={1} className="cell-input auto-fit-cell" aria-label={field.name} value={Array.isArray(value) ? value.join(", ") : String(value ?? "")} onChange={(event) => onChange(event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /> : <input {...shared} className="cell-input" aria-label={field.name} value={Array.isArray(value) ? value.join(", ") : String(value ?? "")} onChange={(event) => onChange(event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} title={displayArray(value)} />;
   if (field.type === "progress" || field.type === "percentage") {
     const numeric = Number(value ?? 0);
     return <div className="progress-cell"><span><i style={{ width: `${Math.max(0, Math.min(100, numeric))}%` }} /></span><input {...shared} aria-label={field.name} type="number" min={0} max={100} value={value == null ? "" : numeric} onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))} /><b>%</b></div>;
@@ -139,7 +139,20 @@ function CellEditor({ rowIndex, columnIndex, field, value, onChange }: { rowInde
   if (field.type === "date" || field.type === "dateTime") return <input {...shared} className="cell-input date-input" aria-label={field.name} type={field.type === "date" ? "date" : "datetime-local"} value={String(value ?? "").slice(0, field.type === "date" ? 10 : 16)} onChange={(event) => onChange(event.target.value)} />;
   if (["number", "integer", "currency", "rating", "duration"].includes(field.type)) return <input {...shared} className="cell-input number-input" aria-label={field.name} type="number" min={field.configuration?.min} max={field.configuration?.max} step={field.type === "integer" ? 1 : undefined} value={value == null ? "" : Number(value)} onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))} />;
   const inputType = field.type === "email" ? "email" : field.type === "phone" ? "tel" : field.type === "url" ? "url" : "text";
+  if (autoFit && ["shortText", "longText"].includes(field.type)) return <textarea {...shared} rows={1} className="cell-input auto-fit-cell" aria-label={field.name} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} />;
   return <input {...shared} type={inputType} className="cell-input" aria-label={field.name} value={Array.isArray(value) ? value.join(", ") : String(value ?? "")} onChange={(event) => onChange(event.target.value)} title={String(value ?? "")} />;
+}
+
+function autoRowHeight(record: BaseRecord, fields: FieldDefinition[], headers: ReadonlyMap<string, { getSize: () => number }>, maximum: number) {
+  const lines = fields.reduce((current, field) => {
+    if (!["shortText", "longText", "multiSelect", "multiplePeople", "relationship", "linkToRecord"].includes(field.type)) return current;
+    const value = record.values[field.id];
+    const raw = Array.isArray(value) ? value.join(", ") : String(value ?? "");
+    const width = Math.max(80, (headers.get(field.id)?.getSize() ?? field.width) - 20);
+    const wrapped = raw.split("\n").reduce((sum: number, line: string) => sum + Math.max(1, Math.ceil(line.length / Math.max(10, Math.floor(width / 7)))), 0);
+    return Math.max(current, wrapped);
+  }, 1);
+  return Math.min(maximum, Math.max(38, 16 + lines * 18));
 }
 
 function FieldMenu({ first, last, canDelete, onAction }: { first: boolean; last: boolean; canDelete: boolean; onAction: (action: FieldAction) => void }) {

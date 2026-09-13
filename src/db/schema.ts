@@ -15,13 +15,16 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const memberRole = pgEnum("member_role", ["owner", "admin", "editor", "contributor", "viewer"]);
-export const viewKind = pgEnum("view_kind", ["grid", "kanban", "calendar", "gantt", "gallery", "form", "eisenhower"]);
+export const viewKind = pgEnum("view_kind", ["grid", "kanban", "calendar", "gantt", "timeline", "list", "gallery", "form", "eisenhower"]);
 export const workflowStatus = pgEnum("workflow_status", ["draft", "active", "paused", "archived"]);
 export const executionStatus = pgEnum("execution_status", ["queued", "running", "succeeded", "failed", "retrying"]);
 export const okrStatus = pgEnum("okr_status", ["on_track", "at_risk", "off_track", "completed"]);
 export const keyResultType = pgEnum("key_result_type", ["task", "numeric", "percentage", "manual"]);
 export const taskImportance = pgEnum("task_importance", ["important", "not_important"]);
 export const taskUrgency = pgEnum("task_urgency", ["urgent", "not_urgent"]);
+export const captureStatus = pgEnum("capture_status", ["captured", "clarifying", "converted", "archived"]);
+export const taskRelationshipType = pgEnum("task_relationship_type", ["parent", "depends_on", "blocks", "related_to", "duplicate_of"]);
+export const dashboardScope = pgEnum("dashboard_scope", ["personal", "shared", "workspace"]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -59,6 +62,7 @@ export const bases = pgTable("bases", {
   name: text("name").notNull(),
   color: text("color").notNull().default("violet"),
   settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   ...timestamps,
 }, (table) => [index("bases_workspace_idx").on(table.workspaceId)]);
 
@@ -197,6 +201,7 @@ export const savedViews = pgTable("saved_views", {
   isPersonal: boolean("is_personal").notNull().default(false),
   configuration: jsonb("configuration").$type<Record<string, unknown>>().notNull().default({}),
   position: integer("position").notNull().default(0),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   ...timestamps,
 }, (table) => [index("saved_views_table_idx").on(table.tableId, table.position)]);
 
@@ -204,19 +209,75 @@ export const dashboards = pgTable("dashboards", {
   id: uuid("id").primaryKey().defaultRandom(),
   baseId: uuid("base_id").notNull().references(() => bases.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+  scope: dashboardScope("scope").notNull().default("personal"),
+  defaultPageId: uuid("default_page_id"),
   configuration: jsonb("configuration").$type<Record<string, unknown>>().notNull().default({}),
   ...timestamps,
 });
 
+export const dashboardPages = pgTable("dashboard_pages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dashboardId: uuid("dashboard_id").notNull().references(() => dashboards.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  position: integer("position").notNull().default(0),
+  ...timestamps,
+}, (table) => [index("dashboard_pages_dashboard_position_idx").on(table.dashboardId, table.position)]);
+
 export const dashboardBlocks = pgTable("dashboard_blocks", {
   id: uuid("id").primaryKey().defaultRandom(),
   dashboardId: uuid("dashboard_id").notNull().references(() => dashboards.id, { onDelete: "cascade" }),
+  pageId: uuid("page_id").references(() => dashboardPages.id, { onDelete: "cascade" }),
   kind: text("kind").notNull(),
   dataSource: jsonb("data_source").$type<Record<string, unknown>>().notNull(),
   configuration: jsonb("configuration").$type<Record<string, unknown>>().notNull().default({}),
   layout: jsonb("layout").$type<{ x: number; y: number; w: number; h: number }>().notNull(),
   ...timestamps,
 });
+
+export const dashboardFilters = pgTable("dashboard_filters", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dashboardId: uuid("dashboard_id").notNull().references(() => dashboards.id, { onDelete: "cascade" }),
+  pageId: uuid("page_id").references(() => dashboardPages.id, { onDelete: "cascade" }),
+  blockId: uuid("block_id").references(() => dashboardBlocks.id, { onDelete: "cascade" }),
+  scope: text("scope").notNull(),
+  fieldId: uuid("field_id").references(() => fields.id, { onDelete: "cascade" }),
+  configuration: jsonb("configuration").$type<Record<string, unknown>>().notNull().default({}),
+  ...timestamps,
+});
+
+export const taskCategories = pgTable("task_categories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  baseId: uuid("base_id").notNull().references(() => bases.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("slate"),
+  position: integer("position").notNull().default(0),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  ...timestamps,
+}, (table) => [index("task_categories_base_position_idx").on(table.baseId, table.position)]);
+
+export const capturedThoughts = pgTable("captured_thoughts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  baseId: uuid("base_id").notNull().references(() => bases.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  taskName: text("task_name").notNull(),
+  categoryId: uuid("category_id").references(() => taskCategories.id, { onDelete: "set null" }),
+  estimatedDurationMinutes: integer("estimated_duration_minutes").notNull(),
+  roughTiming: text("rough_timing").notNull().default("Today"),
+  plannedStart: timestamp("planned_start", { withTimezone: true }),
+  status: captureStatus("status").notNull().default("captured"),
+  convertedTaskId: uuid("converted_task_id").references(() => dataRecords.id, { onDelete: "set null" }),
+  convertedAt: timestamp("converted_at", { withTimezone: true }),
+  ...timestamps,
+}, (table) => [index("captured_thoughts_user_status_idx").on(table.userId, table.status), index("captured_thoughts_base_idx").on(table.baseId)]);
+
+export const taskRelationships = pgTable("task_relationships", {
+  sourceTaskId: uuid("source_task_id").notNull().references(() => dataRecords.id, { onDelete: "cascade" }),
+  targetTaskId: uuid("target_task_id").notNull().references(() => dataRecords.id, { onDelete: "cascade" }),
+  type: taskRelationshipType("type").notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.sourceTaskId, table.targetTaskId, table.type] }), index("task_relationship_target_idx").on(table.targetTaskId)]);
 
 export const workflows = pgTable("workflows", {
   id: uuid("id").primaryKey().defaultRandom(),

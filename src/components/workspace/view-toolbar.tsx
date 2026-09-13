@@ -43,6 +43,8 @@ const viewIcons: Record<ViewKind, React.ComponentType<{ size?: number }>> = {
   kanban: KanbanSquare,
   calendar: CalendarDays,
   gantt: GanttChartSquare,
+  timeline: CalendarDays,
+  list: Rows3,
   gallery: GalleryHorizontalEnd,
   form: FormInput,
   eisenhower: Grid2X2,
@@ -179,13 +181,14 @@ export function ViewToolbar({
 
           {panel === "density" && (
             <div className="density-options">
-              {(["compact", "comfortable", "tall"] as const).map((height) => (
+              {(["compact", "default", "comfortable", "auto"] as const).map((height) => (
                 <button key={height} className={cn(view.rowHeight === height && "active")} onClick={() => onUpdateView({ rowHeight: height })}>
                   <span className={`density-preview ${height}`} />
-                  <span><strong>{height[0].toUpperCase() + height.slice(1)}</strong><small>{height === "compact" ? "32 px" : height === "comfortable" ? "42 px" : "56 px"}</small></span>
+                  <span><strong>{height === "auto" ? "Auto fit content" : height[0].toUpperCase() + height.slice(1)}</strong><small>{height === "compact" ? "34 px" : height === "default" ? "44 px" : height === "comfortable" ? "58 px" : `Wrap up to ${view.maxAutoHeight ?? 144} px`}</small></span>
                   {view.rowHeight === height && <Check size={15} />}
                 </button>
               ))}
+              {view.rowHeight === "auto" && <label className="auto-height-limit"><span>Maximum row height</span><input type="number" min={72} max={320} step={8} value={view.maxAutoHeight ?? 144} onChange={(event) => onUpdateView({ maxAutoHeight: Math.max(72, Math.min(320, Number(event.target.value) || 144)) })} /><small>px</small></label>}
             </div>
           )}
 
